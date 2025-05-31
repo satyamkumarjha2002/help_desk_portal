@@ -8,7 +8,6 @@
 5. [Database Schema Design](#database-schema-design)
 6. [Development Phases](#development-phases)
 7. [API Specification](#api-specification)
-8. [Testing Strategy](#testing-strategy)
 9. [Environment Configuration](#environment-configuration)
 10. [Development Workflow](#development-workflow)
 
@@ -35,7 +34,6 @@ A comprehensive AI-powered help desk portal with multi-phase development, featur
 - **Real-time Messaging**: Firebase Realtime Database (Chat & Notifications)
 - **File Storage**: Firebase Cloud Storage (All File Uploads)
 - **Email**: SendGrid/Amazon SES
-- **Cache**: Redis (for session management)
 - **Queue**: Bull/BullMQ (for background jobs)
 - **AI/ML**: OpenAI GPT, Hugging Face models
 
@@ -446,7 +444,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ## Development Phases
 
-### Phase 0: Project creation 
+### Phase 0: Project creation(status - done)
   # Create the root project folder and initialize a single Git repository
   mkdir my-fullstack-app && cd my-fullstack-app
   git init
@@ -494,7 +492,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
   git commit -m "Initial commit: NestJS backend + Next.js frontend (ShadCN), single git repo"
 
 
-### Phase 1: Core Ticketing Foundations
+### Phase 1: Core Ticketing Foundations(status - pending)
 
 * **Auth Part - Firebase Authentication Integration**
   - **Firebase Authentication** as primary auth service
@@ -539,7 +537,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 2: SLA & Workflow Enhancements
+### Phase 2: SLA & Workflow Enhancements(status - pending)
 
 * **Configurable SLAs**
   - Per department/category/priority
@@ -560,7 +558,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 3: Knowledge Base & Self‑Help
+### Phase 3: Knowledge Base & Self‑Help(status - pending)
 
 * **KB/FAQ Module**
   - Article CRUD, linkable in tickets
@@ -578,7 +576,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 4: Managerial Insights
+### Phase 4: Managerial Insights(status - pending)
 
 * **Manager Dashboard**
   - Team workload
@@ -595,7 +593,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 5: Multi‑Channel Ingestion & Ticket Ops
+### Phase 5: Multi‑Channel Ingestion & Ticket Ops(status - pending)
 
 * **Chat‑to‑Ticket** integration (Teams/Slack)
   - Message threading and context preservation
@@ -612,7 +610,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 6: Auto‑Routing & Tagging
+### Phase 6: Auto‑Routing & Tagging(status - pending)
 
 * **Auto‑Routing Engine**
   - Text classification (BERT/fastText) for department → agent
@@ -626,7 +624,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 7: AI‑Assisted Responses
+### Phase 7: AI‑Assisted Responses(status - pending)
 
 * **Response Suggestion**
   - Retrieval from KB + past tickets
@@ -641,7 +639,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 8: Advanced Self‑Serve & Summarization
+### Phase 8: Advanced Self‑Serve & Summarization(status - pending)
 
 * **Hybrid Retrieval Answer Bot**
   - Vector search + keyword fallback
@@ -656,7 +654,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 9: Pattern Detection & Analytics
+### Phase 9: Pattern Detection & Analytics(status - pending)
 
 * **Batch Analysis** (daily/weekly)
   - Cluster similar ticket texts, flag spikes
@@ -674,7 +672,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
 
 ---
 
-### Phase 10: Extensibility, Compliance & Monitoring
+### Phase 10: Extensibility, Compliance & Monitoring(status - pending)
 
 * **Plugin Architecture** for future AI features
   - Extensible framework
@@ -695,7 +693,7 @@ CREATE TYPE notification_type AS ENUM ('ticket_assigned', 'ticket_updated', 'sla
   - Query‑validation on startup to catch schema drift
   - Performance monitoring
 
-### Phase 11: Chat Interface - Firebase Realtime Database Integration
+### Phase 11: Chat Interface - Firebase Realtime Database Integration(status - pending)
   - **Firebase Realtime Database** as primary messaging service
   - **Real-time chat** between users using Firebase listeners
   - **Firebase Realtime Database structure** for chat messages
@@ -769,35 +767,6 @@ chat.user_online
 notification.new
 notification.read
 ```
-
----
-
-## Testing Strategy
-
-### Unit Tests (Target: 90% Coverage)
-- All service methods
-- All utility functions
-- All React components
-- All custom hooks
-
-### Integration Tests
-- API endpoints
-- Database operations
-- Firebase integrations
-- Email integration
-
-### End-to-End Tests
-- User authentication flow
-- Ticket creation and management
-- Dashboard functionality
-- Chat interface
-
-### Performance Tests
-- API response times
-- Database query performance
-- Real-time messaging load
-- File upload handling
-
 ---
 
 ## Environment Configuration
@@ -806,7 +775,6 @@ notification.read
 ```env
 # Database
 DATABASE_URL=postgres://username:password@host:port/database?sslmode=require
-REDIS_URL=redis://username:password@host:port
 
 # Firebase
 FIREBASE_PROJECT_ID=your-project-id
@@ -903,7 +871,6 @@ DB URL: postgres://YOUR_DB_USER:YOUR_DB_PASSWORD@YOUR_DB_HOST:YOUR_DB_PORT/YOUR_
 
 ### Code Organization
 - **Divide code into small, reusable components**
-- **Write tests for every feature**
 - **Write proper documentation for all modules**
 - **Follow consistent naming conventions**
 - **Implement proper error handling**
