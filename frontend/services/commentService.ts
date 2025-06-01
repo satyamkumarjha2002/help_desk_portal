@@ -294,10 +294,8 @@ export const commentService = {
         return 'Assignment';
       case CommentType.ESCALATION:
         return 'Escalation';
-      case CommentType.MERGE:
-        return 'Merge';
-      case CommentType.SPLIT:
-        return 'Split';
+      case CommentType.REPLY:
+        return 'Reply';
       default:
         return 'Unknown';
     }
@@ -355,10 +353,8 @@ export const commentService = {
         return '👤';
       case CommentType.ESCALATION:
         return '⬆️';
-      case CommentType.MERGE:
-        return '🔗';
-      case CommentType.SPLIT:
-        return '✂️';
+      case CommentType.REPLY:
+        return '↩️';
       default:
         return '📝';
     }
@@ -372,5 +368,68 @@ export const commentService = {
       return content;
     }
     return content.substring(0, maxLength) + '...';
-  }
+  },
+
+  /**
+   * Add reply to a comment
+   */
+  async addReply(commentId: string, content: string): Promise<TicketComment> {
+    if (!content.trim()) {
+      throw new Error('Reply content is required');
+    }
+
+    try {
+      const response = await api.post(`/comments/${commentId}/reply`, {
+        content: content.trim(),
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Failed to add reply');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to add reply:', error);
+      throw new Error(`Failed to add reply: ${error.response?.data?.message || error.message}`);
+    }
+  },
+
+  /**
+   * Get ticket comments with threaded replies
+   */
+  async getTicketCommentsThreaded(
+    ticketId: string,
+    page: number = 1,
+    limit: number = 50
+  ): Promise<{
+    comments: TicketComment[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> {
+    if (!ticketId) {
+      throw new Error('Ticket ID is required');
+    }
+
+    try {
+      const response = await api.get(`/comments/ticket/${ticketId}/threaded`, {
+        params: { page, limit },
+      });
+
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Failed to fetch threaded comments');
+      }
+
+      return {
+        comments: response.data.data || [],
+        pagination: response.data.pagination || {
+          page: 1,
+          limit: 50,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    } catch (error: any) {
+      console.error('Failed to fetch threaded comments:', error);
+      throw new Error(`Failed to fetch threaded comments: ${error.response?.data?.message || error.message}`);
+    }
+  },
 }; 

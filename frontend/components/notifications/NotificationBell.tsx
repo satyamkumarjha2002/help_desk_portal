@@ -25,10 +25,11 @@ import {
   XCircle,
   AtSign,
   MessageSquare,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 const iconMap: Record<string, React.ComponentType<any>> = {
   'user-plus': UserPlus,
@@ -42,6 +43,7 @@ const iconMap: Record<string, React.ComponentType<any>> = {
   'at-sign': AtSign,
   'message-square': MessageSquare,
   'bell': Bell,
+  'refresh-cw': RefreshCw
 };
 
 const colorMap: Record<string, string> = {
@@ -56,8 +58,8 @@ const colorMap: Record<string, string> = {
 
 export function NotificationBell() {
   const { 
-    notifications, 
-    unreadCount, 
+    notifications = [],
+    unreadCount = 0,
     isLoading, 
     markAsRead, 
     markAllAsRead,
@@ -65,22 +67,43 @@ export function NotificationBell() {
   } = useNotifications();
   
   const [isOpen, setIsOpen] = useState(false);
+  const router = useRouter();
 
-  const handleNotificationClick = async (notification: any) => {
+  // Load notifications when dropdown opens
+  const handleDropdownOpen = async (open: boolean) => {
+    setIsOpen(open);
+    if (open && loadNotifications) {
+      // Reload notifications when dropdown opens to ensure we have the latest
+      await loadNotifications(1);
+    }
+  };
+
+  const handleNotificationClick = async (notification: any, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Mark as read first
     if (!notification.isRead) {
       await markAsRead(notification.id);
     }
+    
+    // Close the dropdown
     setIsOpen(false);
+    
+    // Navigate to the notification URL
+    const targetUrl = notification.actionUrl || '/dashboard';
+    console.log('Navigating to:', targetUrl); // Debug log
+    router.push(targetUrl);
   };
 
   const handleMarkAllRead = async () => {
     await markAllAsRead();
   };
 
-  const recentNotifications = notifications.slice(0, 5);
+  const recentNotifications = Array.isArray(notifications) ? notifications.slice(0, 5) : [];
 
   return (
-    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+    <DropdownMenu open={isOpen} onOpenChange={handleDropdownOpen}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="relative">
           <Bell className="h-5 w-5" />
@@ -134,15 +157,14 @@ export function NotificationBell() {
           ) : (
             <div className="space-y-1">
               {recentNotifications.map((notification) => {
-                const IconComponent = iconMap[notification.icon] || Bell;
-                const colorClass = colorMap[notification.color] || 'text-gray-500';
+                const IconComponent = iconMap[notification.icon || 'bell'] || Bell;
+                const colorClass = colorMap[notification.color || 'gray'] || 'text-gray-500';
                 
                 return (
-                  <Link
+                  <div
                     key={notification.id}
-                    href={notification.actionUrl}
-                    onClick={() => handleNotificationClick(notification)}
-                    className={`block p-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-l-4 ${
+                    onClick={(e) => handleNotificationClick(notification, e)}
+                    className={`block p-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-l-4 cursor-pointer ${
                       notification.isRead 
                         ? 'border-transparent' 
                         : notification.isHighPriority 
@@ -160,7 +182,7 @@ export function NotificationBell() {
                           <p className={`text-sm font-medium truncate ${
                             !notification.isRead ? 'text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'
                           }`}>
-                            {notification.title}
+                            {notification.title || 'Notification'}
                           </p>
                           {!notification.isRead && (
                             <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0" />
@@ -168,30 +190,35 @@ export function NotificationBell() {
                         </div>
                         
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
-                          {notification.message}
+                          {notification.message || 'No message available'}
                         </p>
                         
                         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                          {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+                          {notification.createdAt ? formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true }) : 'Unknown time'}
                         </p>
                       </div>
                     </div>
-                  </Link>
+                  </div>
                 );
               })}
             </div>
           )}
         </ScrollArea>
         
-        {notifications.length > 5 && (
+        {Array.isArray(notifications) && notifications.length > 5 && (
           <>
             <DropdownMenuSeparator />
             <div className="p-2">
-              <Link href="/notifications">
-                <Button variant="ghost" className="w-full justify-center text-sm">
-                  View all notifications
-                </Button>
-              </Link>
+              <Button 
+                variant="ghost" 
+                className="w-full justify-center text-sm"
+                onClick={() => {
+                  setIsOpen(false);
+                  router.push('/notifications');
+                }}
+              >
+                View all notifications
+              </Button>
             </div>
           </>
         )}

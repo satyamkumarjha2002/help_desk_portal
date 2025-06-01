@@ -14,6 +14,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 // Import entities
 import { User } from './entities/user.entity';
@@ -74,6 +75,7 @@ import { Notification } from './entities/notification.entity';
     AttachmentsModule,
     CommentsModule,
     NotificationsModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

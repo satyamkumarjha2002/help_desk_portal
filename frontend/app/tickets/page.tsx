@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSearchParams } from 'next/navigation';
 import { ticketService } from '@/services/ticketService';
 import { departmentService } from '@/services/departmentService';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AppHeader } from '@/components/app-header';
 import { 
   Search, 
@@ -18,7 +21,11 @@ import {
   TicketIcon,
   Calendar,
   User,
-  Building
+  Building,
+  UserPlus,
+  CheckSquare,
+  Square,
+  CheckCircle
 } from 'lucide-react';
 import { Ticket, TicketStatus, Department } from '@/types';
 import Link from 'next/link';
@@ -28,6 +35,7 @@ import { withProtectedPage } from '@/lib/withAuth';
 function TicketsPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -35,13 +43,29 @@ function TicketsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
   const [departmentFilter, setDepartmentFilter] = useState('all');
+  const [assigneeFilter, setAssigneeFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalTickets, setTotalTickets] = useState(0);
   const [error, setError] = useState('');
   const [assignedToMe, setAssignedToMe] = useState(false);
+  
+  // New state for bulk operations
+  const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const pageSize = 10;
+
+  // Handle URL parameters
+  useEffect(() => {
+    const assigneeId = searchParams.get('assigneeId');
+    if (assigneeId === 'unassigned') {
+      setAssigneeFilter('unassigned');
+    } else if (assigneeId && user && assigneeId === user.id) {
+      setAssigneeFilter('me');
+    }
+  }, [searchParams, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -60,24 +84,33 @@ function TicketsPage() {
 
   useEffect(() => {
     fetchTickets();
-  }, [currentPage, statusFilter, departmentFilter, searchTerm, assignedToMe]);
+  }, [currentPage, statusFilter, departmentFilter, assigneeFilter, searchTerm, assignedToMe]);
 
   const fetchTickets = async () => {
     if (!user) return;
     
     setLoading(true);
     try {
+      let assigneeId: string | undefined;
+      if (assigneeFilter === 'unassigned') {
+        assigneeId = 'unassigned';
+      } else if (assigneeFilter === 'me') {
+        assigneeId = user.id;
+      }
+
       const response = await ticketService.getTickets({
         page: currentPage,
         limit: pageSize,
         status: statusFilter === 'all' ? undefined : statusFilter,
         departmentId: departmentFilter === 'all' ? undefined : departmentFilter,
+        assigneeId,
         search: searchTerm || undefined,
       });
 
       setTickets(response.tickets);
       setTotalTickets(response.total);
       setTotalPages(Math.ceil(response.total / pageSize));
+      setSelectedTickets(new Set()); // Clear selection when fetching new data
     } catch (error) {
       // Handle error silently
     } finally {
@@ -98,6 +131,58 @@ function TicketsPage() {
   const handleDepartmentFilter = (value: string) => {
     setDepartmentFilter(value);
     setCurrentPage(1);
+  };
+
+  const handleAssigneeFilter = (value: string) => {
+    setAssigneeFilter(value);
+    setCurrentPage(1);
+  };
+
+  // Bulk selection handlers
+  const handleSelectTicket = (ticketId: string, checked: boolean) => {
+    const newSelected = new Set(selectedTickets);
+    if (checked) {
+      newSelected.add(ticketId);
+    } else {
+      newSelected.delete(ticketId);
+    }
+    setSelectedTickets(newSelected);
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const unassignedTickets = tickets.filter(ticket => !ticket.assignee);
+      setSelectedTickets(new Set(unassignedTickets.map(t => t.id)));
+    } else {
+      setSelectedTickets(new Set());
+    }
+  };
+
+  // Assign selected tickets to current user
+  const handleAssignToMe = async () => {
+    if (selectedTickets.size === 0 || !user) return;
+
+    setBulkLoading(true);
+    setError(''); // Clear any existing error
+    try {
+      const assignmentPromises = Array.from(selectedTickets).map(ticketId =>
+        ticketService.assignTicket(ticketId, { assigneeId: user.id })
+      );
+
+      await Promise.all(assignmentPromises);
+      
+      setSuccessMessage(`Successfully assigned ${selectedTickets.size} ticket(s) to yourself!`);
+      setSelectedTickets(new Set());
+      await fetchTickets(); // Refresh the ticket list
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Failed to assign tickets:', error);
+      setError('Failed to assign tickets. Please try again.');
+    } finally {
+      setBulkLoading(false);
+    }
   };
 
   const getStatusColor = (status: TicketStatus) => {
@@ -169,7 +254,7 @@ function TicketsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -212,6 +297,18 @@ function TicketsPage() {
                 </SelectContent>
               </Select>
 
+              {/* Assignee Filter */}
+              <Select value={assigneeFilter} onValueChange={handleAssigneeFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All assignees" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All assignees</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                  <SelectItem value="me">Assigned to me</SelectItem>
+                </SelectContent>
+              </Select>
+
               {/* Clear Filters */}
               <Button 
                 variant="outline" 
@@ -219,8 +316,12 @@ function TicketsPage() {
                   setSearchTerm('');
                   setStatusFilter('all');
                   setDepartmentFilter('all');
+                  setAssigneeFilter('all');
                   setCurrentPage(1);
+                  setError('');
+                  setSuccessMessage('');
                 }}
+                className="whitespace-nowrap"
               >
                 Clear Filters
               </Button>
@@ -234,6 +335,66 @@ function TicketsPage() {
             Showing {tickets.length} of {totalTickets} tickets
           </p>
         </div>
+
+        {/* Success/Error Messages */}
+        {successMessage && (
+          <Alert className="mb-4 bg-green-50 border-green-200 text-green-800 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400">
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>{successMessage}</AlertDescription>
+          </Alert>
+        )}
+
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Bulk Actions for Unassigned Tickets */}
+        {assigneeFilter === 'unassigned' && tickets.some(ticket => !ticket.assignee) && (
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="select-all"
+                      checked={selectedTickets.size > 0 && selectedTickets.size === tickets.filter(t => !t.assignee).length}
+                      onCheckedChange={handleSelectAll}
+                    />
+                    <label
+                      htmlFor="select-all"
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      Select all unassigned ({tickets.filter(t => !t.assignee).length})
+                    </label>
+                  </div>
+                  
+                  {selectedTickets.size > 0 && (
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
+                      {selectedTickets.size} ticket(s) selected
+                    </span>
+                  )}
+                </div>
+
+                {selectedTickets.size > 0 && (
+                  <Button
+                    onClick={handleAssignToMe}
+                    disabled={bulkLoading}
+                    className="flex items-center gap-2"
+                  >
+                    {bulkLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <UserPlus className="h-4 w-4" />
+                    )}
+                    Assign to Me ({selectedTickets.size})
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tickets List */}
         {loading ? (
@@ -275,72 +436,122 @@ function TicketsPage() {
           </Card>
         ) : (
           <div className="space-y-4">
-            {tickets.map((ticket) => (
-              <Card key={ticket.id} className="hover:shadow-md transition-shadow cursor-pointer">
-                <CardContent className="p-6" onClick={() => router.push(`/tickets/${ticket.id}`)}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
-                          #{ticket.ticketNumber}
-                        </span>
-                        <Badge className={getStatusColor(ticket.status)}>
-                          {formatStatus(ticket.status)}
-                        </Badge>
-                        {ticket.priority && (
-                          <div 
-                            className="w-3 h-3 rounded-full ring-2 ring-white dark:ring-gray-800" 
-                            style={{ backgroundColor: ticket.priority.color }}
-                            title={ticket.priority.name}
+            {tickets.map((ticket) => {
+              const isUnassigned = !ticket.assignee;
+              const isSelected = selectedTickets.has(ticket.id);
+              const showCheckbox = assigneeFilter === 'unassigned' && isUnassigned;
+
+              return (
+                <Card key={ticket.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      {/* Checkbox for unassigned tickets */}
+                      {showCheckbox && (
+                        <div className="flex-shrink-0 pt-1">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={(checked) => handleSelectTicket(ticket.id, checked === true)}
+                            onClick={(e) => e.stopPropagation()}
                           />
-                        )}
-                      </div>
-                      
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 truncate">
-                        {ticket.title}
-                      </h3>
-                      
-                      <div className="flex items-center gap-6 text-sm text-gray-600 dark:text-gray-400">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
-                          <span>{formatDate(ticket.createdAt)}</span>
                         </div>
-                        
-                        {ticket.requester && (
-                          <div className="flex items-center gap-1">
-                            <User className="h-4 w-4" />
-                            <span>{ticket.requester.displayName}</span>
+                      )}
+
+                      {/* Ticket content */}
+                      <div 
+                        className="flex-1 min-w-0 cursor-pointer"
+                        onClick={() => router.push(`/tickets/${ticket.id}`)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="font-mono text-sm text-gray-500 dark:text-gray-400">
+                                #{ticket.ticketNumber}
+                              </span>
+                              <Badge className={getStatusColor(ticket.status)}>
+                                {formatStatus(ticket.status)}
+                              </Badge>
+                              {ticket.priority && (
+                                <div 
+                                  className="w-3 h-3 rounded-full ring-2 ring-white dark:ring-gray-800" 
+                                  style={{ backgroundColor: ticket.priority.color }}
+                                  title={ticket.priority.name}
+                                />
+                              )}
+                              {isUnassigned && (
+                                <Badge variant="outline" className="text-orange-600 border-orange-300 bg-orange-50 dark:bg-orange-900/20">
+                                  Unassigned
+                                </Badge>
+                              )}
+                            </div>
+                            
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2 truncate">
+                              {ticket.title}
+                            </h3>
+                            
+                            <div className="flex items-center gap-6 text-sm text-gray-600 dark:text-gray-400">
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-4 w-4" />
+                                <span>{formatDate(ticket.createdAt)}</span>
+                              </div>
+                              
+                              {ticket.requester && (
+                                <div className="flex items-center gap-1">
+                                  <User className="h-4 w-4" />
+                                  <span>{ticket.requester.displayName}</span>
+                                </div>
+                              )}
+                              
+                              {ticket.department && (
+                                <div className="flex items-center gap-1">
+                                  <Building className="h-4 w-4" />
+                                  <span>{ticket.department.name}</span>
+                                </div>
+                              )}
+                              
+                              {ticket.assignee && (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded">
+                                    Assigned to {ticket.assignee.displayName}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        )}
-                        
-                        {ticket.department && (
-                          <div className="flex items-center gap-1">
-                            <Building className="h-4 w-4" />
-                            <span>{ticket.department.name}</span>
+                          
+                          <div className="ml-4 flex-shrink-0">
+                            {ticket.category && (
+                              <span className="inline-block px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full">
+                                {ticket.category.name}
+                              </span>
+                            )}
                           </div>
-                        )}
-                        
-                        {ticket.assignee && (
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded">
-                              Assigned to {ticket.assignee.displayName}
-                            </span>
-                          </div>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="ml-4 flex-shrink-0">
-                      {ticket.category && (
-                        <span className="inline-block px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full">
-                          {ticket.category.name}
-                        </span>
+
+                      {/* Quick assign button for individual tickets when not in bulk mode */}
+                      {isUnassigned && assigneeFilter !== 'unassigned' && (
+                        <div className="flex-shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectTicket(ticket.id, true);
+                              setTimeout(() => handleAssignToMe(), 100);
+                            }}
+                            disabled={bulkLoading}
+                            className="flex items-center gap-1"
+                          >
+                            <UserPlus className="h-3 w-3" />
+                            Assign to Me
+                          </Button>
+                        </div>
                       )}
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
 

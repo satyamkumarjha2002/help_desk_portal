@@ -69,7 +69,11 @@ export function AuthWrapper({
       case 'auth-only':
         // Auth-only pages (login, register) - redirect if already authenticated
         if (user) {
-          router.push(authenticatedRedirect);
+          // Redirect based on department membership
+          const redirectUrl = user.departmentId 
+            ? `/admin/dashboard/${user.departmentId}`
+            : authenticatedRedirect;
+          router.push(redirectUrl);
           return;
         }
         break;

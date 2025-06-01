@@ -43,6 +43,17 @@ export const notificationService = {
     const response = await api.get('/notifications', {
       params: { page, limit }
     });
+    
+    // Handle the new backend response format
+    if (response.data.success && response.data.data) {
+      return {
+        notifications: response.data.data.notifications || [],
+        total: response.data.data.total || 0,
+        unreadCount: response.data.data.unreadCount || 0,
+      };
+    }
+    
+    // Fallback for older format
     return response.data;
   },
 
@@ -66,16 +77,75 @@ export const notificationService = {
     const notificationsRef = ref(database, `notifications/${userId}`);
     const unreadCountRef = ref(database, `userPresence/${userId}/unreadNotifications`);
 
+    // Track the timestamp when listener was established to avoid showing old notifications
+    const listenerStartTime = Date.now();
+    let isInitialLoad = true;
+    let processedNotificationIds = new Set<string>();
+
     const handleNotifications = (snapshot: any) => {
       if (snapshot.exists()) {
         const notifications = snapshot.val();
-        // Get the most recent notification
         const notificationIds = Object.keys(notifications);
+        
         if (notificationIds.length > 0) {
-          const latestNotificationId = notificationIds.sort().pop();
-          const latestNotification = notifications[latestNotificationId!];
-          onNotification(latestNotification);
+          // Sort by creation time to get the newest notifications first
+          const sortedNotifications = notificationIds
+            .map(id => ({ id, ...notifications[id] }))
+            .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+          // On initial load, just record existing notification IDs without showing them
+          if (isInitialLoad) {
+            sortedNotifications.forEach(notification => {
+              processedNotificationIds.add(notification.id);
+            });
+            isInitialLoad = false;
+            return;
+          }
+
+          // Process new notifications (not seen before and created after listener start)
+          for (const notification of sortedNotifications) {
+            // Skip if we've already processed this notification
+            if (processedNotificationIds.has(notification.id)) {
+              continue;
+            }
+
+            // Check if this notification was created after the listener was established
+            const notificationTime = new Date(notification.createdAt || 0).getTime();
+            if (notificationTime >= listenerStartTime) {
+              // Mark as processed
+              processedNotificationIds.add(notification.id);
+
+              // Ensure notification has required fields with fallbacks
+              const safeNotification: Notification = {
+                id: notification.id,
+                type: notification.type || 'unknown',
+                title: notification.title || 'Notification',
+                message: notification.message || 'You have a new notification',
+                data: notification.data || {},
+                isRead: notification.isRead || false,
+                createdAt: notification.createdAt || new Date().toISOString(),
+                actionUrl: notification.actionUrl || '/dashboard',
+                icon: notification.icon || 'bell',
+                color: notification.color || 'gray',
+                isHighPriority: notification.isHighPriority || false,
+              };
+              
+              // Only trigger the callback for truly new notifications
+              onNotification(safeNotification);
+            } else {
+              // Mark older notifications as processed to avoid future processing
+              processedNotificationIds.add(notification.id);
+            }
+          }
         }
+      } else if (!isInitialLoad) {
+        // If no notifications exist and it's not initial load, it means notifications were cleared
+        processedNotificationIds.clear();
+      }
+      
+      // Always mark initial load as complete if we've processed the snapshot
+      if (isInitialLoad) {
+        isInitialLoad = false;
       }
     };
 
@@ -109,7 +179,7 @@ export const notificationService = {
         badge: '/favicon.ico',
         tag: notification.id,
         data: {
-          actionUrl: notification.actionUrl,
+          actionUrl: notification.actionUrl || '/dashboard',
           notificationId: notification.id,
         },
         requireInteraction: notification.isHighPriority,
@@ -117,7 +187,7 @@ export const notificationService = {
 
       browserNotification.onclick = () => {
         window.focus();
-        window.location.href = notification.actionUrl;
+        window.location.href = notification.actionUrl || '/dashboard';
         browserNotification.close();
       };
 

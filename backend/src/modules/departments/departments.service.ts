@@ -204,10 +204,10 @@ export class DepartmentsService {
   /**
    * Get active departments only
    * 
-   * @param currentUser - Current user
+   * @param currentUser - Current user (optional for public access)
    * @returns Array of active departments
    */
-  async findActive(currentUser: User): Promise<Department[]> {
+  async findActive(currentUser?: User): Promise<Department[]> {
     return this.departmentRepository.find({
       where: { isActive: true },
       relations: ['parent'],

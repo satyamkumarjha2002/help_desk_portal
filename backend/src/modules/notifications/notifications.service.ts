@@ -5,6 +5,7 @@ import { Notification, NotificationType } from '../../entities/notification.enti
 import { User } from '../../entities/user.entity';
 import { Ticket } from '../../entities/ticket.entity';
 import { FirebaseConfig } from '../../config/firebase.config';
+import { In } from 'typeorm';
 
 /**
  * Notifications Service
@@ -294,7 +295,7 @@ export class NotificationsService {
   }
 
   /**
-   * Send ticket commented notification
+   * Send ticket commented notification with enhanced logic
    */
   async notifyTicketCommented(
     ticket: Ticket, 
@@ -312,11 +313,125 @@ export class NotificationsService {
           ticketId: ticket.id,
           ticketNumber: ticket.ticketNumber,
           commentedBy: commentedBy.displayName,
+          commentPreview,
         }
       )
     );
 
     await Promise.all(promises);
+  }
+
+  /**
+   * Enhanced comment notification logic based on assignment status
+   */
+  async notifyTicketCommentedEnhanced(
+    ticket: Ticket,
+    comment: any,
+    commentedBy: User
+  ): Promise<void> {
+    try {
+      const notifyUsers: User[] = [];
+      const commentPreview = comment.content.length > 100 
+        ? comment.content.substring(0, 100) + '...' 
+        : comment.content;
+
+      // If ticket is assigned, notify the assignee (if not the commenter)
+      if (ticket.assignee && ticket.assignee.id !== commentedBy.id) {
+        notifyUsers.push(ticket.assignee);
+      } 
+      // If ticket is not assigned, notify all department members who can resolve tickets
+      else if (!ticket.assignee && ticket.department) {
+        const departmentMembers = await this.userRepository.find({
+          where: {
+            departmentId: ticket.department.id,
+            isActive: true,
+            role: In(['agent', 'team_lead', 'manager', 'admin', 'super_admin']),
+          },
+        });
+        
+        // Filter out the commenter
+        const eligibleMembers = departmentMembers.filter(member => member.id !== commentedBy.id);
+        notifyUsers.push(...eligibleMembers);
+      }
+
+      // Always notify the requester (if not the commenter)
+      if (ticket.requester && ticket.requester.id !== commentedBy.id) {
+        if (!notifyUsers.some(user => user.id === ticket.requester.id)) {
+          notifyUsers.push(ticket.requester);
+        }
+      }
+
+      // Get unique users from previous comments (excluding the current commenter)
+      const previousCommenters = await this.userRepository
+        .createQueryBuilder('user')
+        .innerJoin('user.comments', 'comment')
+        .where('comment.ticketId = :ticketId', { ticketId: ticket.id })
+        .andWhere('comment.userId != :currentUserId', { currentUserId: commentedBy.id })
+        .andWhere('comment.commentType = :type', { type: 'comment' })
+        .getMany();
+
+      for (const prevCommenter of previousCommenters) {
+        if (!notifyUsers.some(u => u.id === prevCommenter.id)) {
+          notifyUsers.push(prevCommenter);
+        }
+      }
+
+      // Send notifications
+      if (notifyUsers.length > 0) {
+        await this.notifyTicketCommented(ticket, notifyUsers, commentedBy, commentPreview);
+        
+        // Send email notifications
+        await this.sendCommentEmailNotifications(ticket, notifyUsers, commentedBy, commentPreview);
+      }
+    } catch (error) {
+      this.logger.error('Failed to send enhanced comment notifications:', error);
+    }
+  }
+
+  /**
+   * Send email notifications for comments
+   */
+  private async sendCommentEmailNotifications(
+    ticket: Ticket,
+    targetUsers: User[],
+    commentedBy: User,
+    commentPreview: string
+  ): Promise<void> {
+    try {
+      // For now, log the email that would be sent
+      // In a real implementation, you would integrate with an email service like SendGrid, AWS SES, etc.
+      
+      for (const user of targetUsers) {
+        const emailData = {
+          to: user.email,
+          subject: `New comment on ticket ${ticket.ticketNumber}`,
+          body: `
+            Hi ${user.displayName},
+            
+            ${commentedBy.displayName} has added a new comment to ticket ${ticket.ticketNumber}:
+            
+            "${commentPreview}"
+            
+            Ticket: ${ticket.title}
+            Status: ${ticket.status}
+            
+            You can view and respond to this comment at:
+            ${process.env.FRONTEND_URL || 'http://localhost:3000'}/tickets/${ticket.id}
+            
+            Best regards,
+            Help Desk Team
+          `,
+        };
+
+        // Log the email (replace with actual email sending)
+        this.logger.log(`Email notification sent to ${user.email} for comment on ticket ${ticket.ticketNumber}`);
+        
+        // TODO: Integrate with actual email service
+        // await this.emailService.sendEmail(emailData);
+      }
+    } catch (error) {
+      this.logger.error('Failed to send comment email notifications:', error);
+    }
   }
 
   /**
@@ -359,4 +474,50 @@ export class NotificationsService {
 
     await Promise.all(promises);
   }
+
+  /**
+   * Send ticket status changed notification
+   */
+  async notifyTicketStatusChanged(
+    ticket: Ticket, 
+    oldStatus: string, 
+    newStatus: string, 
+    targetUsers: User[], 
+    changedBy: User
+  ): Promise<void> {
+    const statusChangeMap: Record<string, string> = {
+      'open': 'Open',
+      'in_progress': 'In Progress',
+      'pending': 'Pending',
+      'resolved': 'Resolved',
+      'closed': 'Closed',
+      'cancelled': 'Cancelled'
+    };
+
+    const oldStatusName = statusChangeMap[oldStatus] || oldStatus;
+    const newStatusName = statusChangeMap[newStatus] || newStatus;
+
+    const promises = targetUsers.map(user =>
+      this.createNotification(
+        user.id,
+        NotificationType.TICKET_STATUS_CHANGED,
+        'Ticket Status Changed',
+        `${changedBy.displayName} changed ticket ${ticket.ticketNumber} status from ${oldStatusName} to ${newStatusName}`,
+        {
+          ticketId: ticket.id,
+          ticketNumber: ticket.ticketNumber,
+          oldStatus,
+          newStatus,
+          changedBy: changedBy.displayName,
+          changedById: changedBy.id,
+        }
+      )
+    );
+
+    await Promise.all(promises);
+  }
+
+  /**
+   * Send ticket updated notification with enhanced logic
+   */
 } 

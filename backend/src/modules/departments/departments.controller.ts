@@ -21,9 +21,10 @@ import { CreateDepartmentDto, UpdateDepartmentDto } from './dto';
  * 
  * Handles all department-related HTTP endpoints with proper authentication
  * and authorization using Firebase Auth Guard.
+ * 
+ * Note: /departments/active endpoint is public to support user registration.
  */
 @Controller('departments')
-@UseGuards(FirebaseAuthGuard)
 export class DepartmentsController {
   constructor(private readonly departmentsService: DepartmentsService) {}
 
@@ -32,17 +33,22 @@ export class DepartmentsController {
    * GET /departments
    */
   @Get()
+  @UseGuards(FirebaseAuthGuard)
   async findAll(@Request() req: any) {
     return this.departmentsService.findAll(req.user);
   }
 
   /**
-   * Get active departments only
+   * Get active departments only (PUBLIC - used during registration)
    * GET /departments/active
+   * 
+   * Security Note: This endpoint is intentionally public to support user registration.
+   * It only returns basic department information (id, name, description) for active departments.
+   * No sensitive data or user information is exposed through this endpoint.
    */
   @Get('active')
-  async findActive(@Request() req: any) {
-    return this.departmentsService.findActive(req.user);
+  async findActive() {
+    return this.departmentsService.findActive();
   }
 
   /**
@@ -50,6 +56,7 @@ export class DepartmentsController {
    * GET /departments/hierarchy
    */
   @Get('hierarchy')
+  @UseGuards(FirebaseAuthGuard)
   async getHierarchy(@Request() req: any) {
     return this.departmentsService.getHierarchy(req.user);
   }
@@ -59,6 +66,7 @@ export class DepartmentsController {
    * GET /departments/:id
    */
   @Get(':id')
+  @UseGuards(FirebaseAuthGuard)
   async findOne(@Param('id', ParseUUIDPipe) id: string, @Request() req: any) {
     return this.departmentsService.findOne(id, req.user);
   }
@@ -68,6 +76,7 @@ export class DepartmentsController {
    * POST /departments
    */
   @Post()
+  @UseGuards(FirebaseAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() createDepartmentDto: CreateDepartmentDto, @Request() req: any) {
     return this.departmentsService.create(createDepartmentDto, req.user);
@@ -78,6 +87,7 @@ export class DepartmentsController {
    * PATCH /departments/:id
    */
   @Patch(':id')
+  @UseGuards(FirebaseAuthGuard)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateDepartmentDto: UpdateDepartmentDto,
@@ -91,6 +101,7 @@ export class DepartmentsController {
    * DELETE /departments/:id
    */
   @Delete(':id')
+  @UseGuards(FirebaseAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id', ParseUUIDPipe) id: string, @Request() req: any) {
     return this.departmentsService.remove(id, req.user);

@@ -100,27 +100,57 @@ export function AppHeader() {
   ];
 
   const adminItems = [
+    // Department Admin Items - Show if user has a department
+    ...(user?.departmentId ? [
+      {
+        href: `/admin/dashboard/${user.departmentId}`,
+        label: 'Department Dashboard',
+        icon: BarChart3,
+        show: true
+      },
+      {
+        href: `/admin/tickets/${user.departmentId}`,
+        label: 'Manage Tickets',
+        icon: TicketIcon,
+        show: true
+      },
+      {
+        href: `/admin/team/${user.departmentId}`,
+        label: 'Team Management',
+        icon: Users,
+        show: true
+      },
+      {
+        href: `/admin/analytics/${user.departmentId}`,
+        label: 'Analytics',
+        icon: BarChart3,
+        show: true
+      }
+    ] : []),
+    
+    // System Admin Items - Show only for super admins and system admins
     {
       href: '/admin/users',
-      label: 'Users',
+      label: 'All Users',
       icon: Users,
       show: user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN
     },
     {
       href: '/admin/departments',
-      label: 'Departments',
+      label: 'All Departments',
       icon: Building,
       show: user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN
     },
     {
-      href: '/admin/reports',
-      label: 'Reports',
-      icon: BarChart3,
-      show: user?.role !== UserRole.END_USER
+      href: '/admin/system',
+      label: 'System Settings',
+      icon: Settings,
+      show: user?.role === UserRole.SUPER_ADMIN
     }
   ];
 
-  const hasAdminAccess = adminItems.some(item => item.show);
+  // User has admin access if they have a department OR are system admin
+  const hasAdminAccess = user?.departmentId || user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN;
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200 dark:border-gray-800 shadow-sm">
