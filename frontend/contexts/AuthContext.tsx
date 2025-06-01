@@ -69,7 +69,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUser(null);
         }
       } catch (error) {
+        console.error('Auth state change error:', error);
         setUser(null);
+      } finally {
+        // Always set loading to false after authentication state is determined
         setLoading(false);
       }
     });
