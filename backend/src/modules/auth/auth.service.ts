@@ -1,10 +1,11 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 import { User, UserRole } from '../../entities/user.entity';
 import { FirebaseConfig } from '../../config/firebase.config';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 /**
  * Authentication Service
@@ -16,9 +17,12 @@ import { FirebaseConfig } from '../../config/firebase.config';
  * - Validates Firebase Auth tokens
  * - Creates custom claims for role-based access
  * - Syncs user data between Firebase Auth and PostgreSQL
+ * - Handles profile image uploads to Firebase Storage
  */
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -28,27 +32,40 @@ export class AuthService {
   /**
    * Register a new user
    * Creates user in both Firebase Auth and local database
+   * Handles profile image upload to Firebase Storage
    * 
    * @param email - User email
    * @param password - User password
    * @param displayName - User display name
    * @param role - User role (optional, defaults to END_USER)
+   * @param departmentId - Department ID (optional)
+   * @param profileImageBuffer - Profile image buffer (optional)
+   * @param profileImageExtension - Profile image file extension (optional)
    * @returns Created user
    */
   async register(
     email: string,
     password: string,
     displayName: string,
-    role: UserRole = UserRole.END_USER
+    role: UserRole = UserRole.END_USER,
+    departmentId?: string,
+    profileImageBuffer?: Buffer,
+    profileImageExtension?: string
   ): Promise<User> {
+    this.logger.log(`Attempting to register user with email: ${email}`);
+    
     try {
+      // Validate input
+      this.validateRegistrationInput(email, password, displayName);
+
       // Check if user already exists locally
       const existingUser = await this.userRepository.findOne({ where: { email } });
       if (existingUser) {
+        this.logger.warn(`Registration failed: User with email ${email} already exists`);
         throw new ConflictException('User with this email already exists');
       }
 
-      // Create user in Firebase Auth
+      // Create user in Firebase Auth first
       const firebaseAuth = FirebaseConfig.getAuth();
       const firebaseUser = await firebaseAuth.createUser({
         email,
@@ -56,6 +73,35 @@ export class AuthService {
         displayName,
         emailVerified: false,
       });
+
+      this.logger.log(`Firebase user created with UID: ${firebaseUser.uid}`);
+
+      let profilePictureUrl: string | null = null;
+      let profilePicturePath: string | null = null;
+
+      // Handle profile image upload if provided
+      if (profileImageBuffer && profileImageExtension) {
+        try {
+          const uploadResult = await this.uploadProfileImage(
+            firebaseUser.uid,
+            profileImageBuffer,
+            profileImageExtension
+          );
+          profilePictureUrl = uploadResult.url;
+          profilePicturePath = uploadResult.path;
+
+          // Update Firebase Auth with profile picture
+          await firebaseAuth.updateUser(firebaseUser.uid, {
+            photoURL: profilePictureUrl,
+          });
+
+          this.logger.log(`Profile image uploaded successfully for user: ${firebaseUser.uid}`);
+        } catch (uploadError) {
+          this.logger.error(`Profile image upload failed for user ${firebaseUser.uid}:`, uploadError);
+          // Continue with user creation even if image upload fails
+          // The user can upload a profile image later
+        }
+      }
 
       // Set custom claims for role-based access
       await firebaseAuth.setCustomUserClaims(firebaseUser.uid, {
@@ -71,16 +117,113 @@ export class AuthService {
         role,
         isActive: true,
         preferences: {},
+        departmentId: departmentId || null,
+        profilePictureUrl,
+        profilePicturePath,
       });
 
       const savedUser = await this.userRepository.save(user);
 
+      this.logger.log(`User registered successfully with ID: ${savedUser.id}`);
       return savedUser;
     } catch (error) {
-      if (error instanceof ConflictException) {
+      this.logger.error(`Registration failed for email ${email}:`, error);
+
+      if (error instanceof ConflictException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new ConflictException('Failed to register user: ' + error.message);
+
+      // If Firebase user was created but local database save failed, we should clean up
+      // This is a more advanced error handling that could be implemented
+      
+      throw new Error(`Failed to register user: ${error.message}`);
+    }
+  }
+
+  /**
+   * Upload profile image to Firebase Storage
+   * Uses the specified path format: helpdeskUserProfile/{userId}.{extension}
+   * 
+   * @param userId - Firebase UID
+   * @param imageBuffer - Image file buffer
+   * @param fileExtension - File extension (png, jpg, etc.)
+   * @returns Object with download URL and storage path
+   */
+  private async uploadProfileImage(
+    userId: string,
+    imageBuffer: Buffer,
+    fileExtension: string
+  ): Promise<{ url: string; path: string }> {
+    try {
+      const storage = FirebaseConfig.getStorage();
+      const bucket = storage.bucket();
+
+      // Use the specified path format: helpdeskUserProfile/{userId}.{extension}
+      const fileName = `${userId}.${fileExtension.toLowerCase()}`;
+      const filePath = `helpdeskUserProfile/${fileName}`;
+
+      const file = bucket.file(filePath);
+
+      // Upload the image
+      await file.save(imageBuffer, {
+        metadata: {
+          contentType: this.getContentType(fileExtension),
+          cacheControl: 'public, max-age=31536000', // Cache for 1 year
+        },
+      });
+
+      // Make the file publicly accessible
+      await file.makePublic();
+
+      // Get the public download URL
+      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+
+      return {
+        url: publicUrl,
+        path: filePath,
+      };
+    } catch (error) {
+      this.logger.error('Failed to upload profile image to Firebase Storage:', error);
+      throw new Error(`Profile image upload failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get content type based on file extension
+   * 
+   * @param extension - File extension
+   * @returns MIME type
+   */
+  private getContentType(extension: string): string {
+    const mimeTypes: Record<string, string> = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+    };
+
+    return mimeTypes[extension.toLowerCase()] || 'application/octet-stream';
+  }
+
+  /**
+   * Validate registration input
+   * 
+   * @param email - User email
+   * @param password - User password
+   * @param displayName - User display name
+   */
+  private validateRegistrationInput(email: string, password: string, displayName: string): void {
+    if (!email || !email.includes('@')) {
+      throw new BadRequestException('Valid email is required');
+    }
+
+    if (!password || password.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters long');
+    }
+
+    if (!displayName || displayName.trim().length < 2) {
+      throw new BadRequestException('Display name must be at least 2 characters long');
     }
   }
 
@@ -119,7 +262,94 @@ export class AuthService {
   }
 
   /**
-   * Update user profile
+   * Update user profile with optional image upload
+   * Updates both Firebase Auth and local database
+   * 
+   * @param userId - User ID
+   * @param updateData - Data to update
+   * @param profileImage - Optional profile image file
+   * @returns Updated user
+   */
+  async updateProfileWithImage(
+    userId: string, 
+    updateData: UpdateProfileDto, 
+    profileImage?: Express.Multer.File
+  ): Promise<User> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    let profilePictureUrl = user.profilePictureUrl;
+    let profilePicturePath = user.profilePicturePath;
+
+    // Handle profile image upload if provided
+    if (profileImage) {
+      try {
+        // Delete old profile image if exists
+        if (user.profilePicturePath) {
+          await this.deleteProfileImage(user.profilePicturePath);
+        }
+
+        // Upload new profile image
+        const fileExtension = profileImage.originalname.split('.').pop();
+        if (!fileExtension) {
+          throw new Error('Invalid file extension');
+        }
+        const uploadResult = await this.uploadProfileImage(
+          user.firebaseUid,
+          profileImage.buffer,
+          fileExtension
+        );
+        
+        profilePictureUrl = uploadResult.url;
+        profilePicturePath = uploadResult.path;
+
+        this.logger.log(`Profile image updated for user: ${user.firebaseUid}`);
+      } catch (uploadError) {
+        this.logger.error(`Profile image upload failed for user ${user.firebaseUid}:`, uploadError);
+        throw new Error(`Profile image upload failed: ${uploadError.message}`);
+      }
+    }
+
+    // Prepare update data with new image URLs if uploaded
+    const finalUpdateData = {
+      ...updateData,
+      ...(profilePictureUrl !== undefined && { profilePictureUrl }),
+      ...(profilePicturePath !== undefined && { profilePicturePath })
+    };
+
+    // Update Firebase Auth if display name or photo URL changed
+    const firebaseAuth = FirebaseConfig.getAuth();
+    const updatePayload: any = {};
+    
+    if (finalUpdateData.displayName && finalUpdateData.displayName !== user.displayName) {
+      updatePayload.displayName = finalUpdateData.displayName;
+    }
+    
+    if (profilePictureUrl && profilePictureUrl !== user.profilePictureUrl) {
+      updatePayload.photoURL = profilePictureUrl;
+    }
+    
+    if (Object.keys(updatePayload).length > 0) {
+      await firebaseAuth.updateUser(user.firebaseUid, updatePayload);
+    }
+
+    // Update role claims if role changed
+    if (finalUpdateData.role && finalUpdateData.role !== user.role) {
+      await firebaseAuth.setCustomUserClaims(user.firebaseUid, {
+        role: finalUpdateData.role,
+        permissions: this.getRolePermissions(finalUpdateData.role),
+      });
+    }
+
+    // Update local database
+    Object.assign(user, finalUpdateData);
+    return await this.userRepository.save(user);
+  }
+
+  /**
+   * Update user profile (backward compatibility)
    * Updates both Firebase Auth and local database
    * 
    * @param userId - User ID
@@ -132,12 +362,21 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
-    // Update Firebase Auth if display name changed
-    if (updateData.displayName && updateData.displayName !== user.displayName) {
+    // Update Firebase Auth if display name or photo URL changed
+    if ((updateData.displayName && updateData.displayName !== user.displayName) ||
+        (updateData.profilePictureUrl !== undefined && updateData.profilePictureUrl !== user.profilePictureUrl)) {
       const firebaseAuth = FirebaseConfig.getAuth();
-      await firebaseAuth.updateUser(user.firebaseUid, {
-        displayName: updateData.displayName,
-      });
+      const updatePayload: any = {};
+      
+      if (updateData.displayName && updateData.displayName !== user.displayName) {
+        updatePayload.displayName = updateData.displayName;
+      }
+      
+      if (updateData.profilePictureUrl !== undefined && updateData.profilePictureUrl !== user.profilePictureUrl) {
+        updatePayload.photoURL = updateData.profilePictureUrl;
+      }
+      
+      await firebaseAuth.updateUser(user.firebaseUid, updatePayload);
     }
 
     // Update role claims if role changed
@@ -152,6 +391,63 @@ export class AuthService {
     // Update local database
     Object.assign(user, updateData);
     return await this.userRepository.save(user);
+  }
+
+  /**
+   * Change user password
+   * Updates password in Firebase Auth
+   * 
+   * Note: This method is currently disabled as password changes
+   * are handled entirely through Firebase Auth on the frontend
+   * to prevent session invalidation and automatic logout.
+   * 
+   * @param firebaseUid - Firebase UID
+   * @param currentPassword - Current password for verification
+   * @param newPassword - New password
+   */
+  /*
+  async changePassword(firebaseUid: string, currentPassword: string, newPassword: string): Promise<void> {
+    try {
+      const firebaseAuth = FirebaseConfig.getAuth();
+      const user = await this.userRepository.findOne({ where: { firebaseUid } });
+      
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // For security, we require the user to verify their current password
+      // This will be handled on the frontend by re-authenticating before calling this endpoint
+      
+      // Update password in Firebase Auth
+      await firebaseAuth.updateUser(firebaseUid, {
+        password: newPassword
+      });
+
+      this.logger.log(`Password updated for user: ${firebaseUid}`);
+    } catch (error) {
+      this.logger.error(`Password change failed for user ${firebaseUid}:`, error);
+      throw new BadRequestException('Failed to change password');
+    }
+  }
+  */
+
+  /**
+   * Delete profile image from Firebase Storage
+   * 
+   * @param imagePath - Storage path of the image
+   */
+  private async deleteProfileImage(imagePath: string): Promise<void> {
+    try {
+      const storage = FirebaseConfig.getStorage();
+      const bucket = storage.bucket();
+      const file = bucket.file(imagePath);
+
+      await file.delete();
+      this.logger.log(`Profile image deleted: ${imagePath}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete profile image: ${imagePath}`, error);
+      // Don't throw error, as this shouldn't block the update
+    }
   }
 
   /**

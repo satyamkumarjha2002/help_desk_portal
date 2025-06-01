@@ -53,13 +53,13 @@ export class TicketComment {
   @ManyToOne(() => Ticket, ticket => ticket.comments, { onDelete: 'CASCADE' })
   ticket: Ticket;
 
-  @Column({ name: 'ticket_id' })
+  @Column({ name: 'ticket_id', type: 'uuid' })
   ticketId: string;
 
   @ManyToOne(() => User, user => user.comments, { nullable: true })
   user: User;
 
-  @Column({ name: 'user_id', nullable: true })
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
   userId: string;
 
   // Attachments on this comment

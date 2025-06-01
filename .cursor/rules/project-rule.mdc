@@ -4,14 +4,17 @@ globs:
 alwaysApply: true
 ---
     -Divde code into each small small components.
-    -Write test for every features.
     -Write proper documentation.
     -Do not commit anything on git
+    -DO not write test cases.
     -Make sure that all the credential files are stored in environment file
     -If you do not have any cred just keep the placeholder in the env file i will update that later.
     -Make sure to write the test cases for every backend features just unit test is enough for now.
     -For Every features make sure to make frontend also in the /frontend folder
     -Make sure that UI/UX is top notch looking modern and easy to use
     -Keep in mind tht keep navigations as simple as that.
-
     -Do not add v1 or api in backend rout jsut create API like this serverUrl/URI
+    -After every fix and feature do not need to create a .md file to explain that.
+    -WhereEver it's possible please use modal insted of creating new pages.
+
+    -If you do not have enough information to say yes or no or make any detrmination just stop and ask me.
