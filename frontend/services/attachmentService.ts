@@ -31,6 +31,8 @@ export const attachmentService = {
     commentId?: string
   ): Promise<Attachment> {
     try {
+      console.log(`🔧 DEBUG: Uploading file "${file.name}" with ticketId: "${ticketId}", commentId: "${commentId}"`);
+      
       // Validate file
       const validation = this.validateFile(file);
       if (!validation.valid) {
@@ -44,11 +46,19 @@ export const attachmentService = {
         formData.append('commentId', commentId);
       }
 
+      console.log(`🔧 DEBUG: FormData contents:`, 
+        Array.from(formData.entries()).map(([key, value]) => 
+          value instanceof File ? [key, `File: ${value.name} (${value.size} bytes)`] : [key, value]
+        )
+      );
+
       const response = await api.post('/attachments/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
+
+      console.log(`🔧 DEBUG: Upload response:`, response.data);
 
       const result = response.data as AttachmentResponse;
       
@@ -56,8 +66,11 @@ export const attachmentService = {
         throw new Error(result.message || 'Upload failed');
       }
 
-      return result.data as Attachment;
+      const attachment = result.data as Attachment;
+      console.log(`🔧 DEBUG: Uploaded to Firebase path: "${attachment.firebasePath}"`);
+      return attachment;
     } catch (error: any) {
+      console.error(`❌ Upload failed:`, error);
       throw new Error(`Failed to upload file: ${error.response?.data?.message || error.message}`);
     }
   },
@@ -71,6 +84,8 @@ export const attachmentService = {
     commentId?: string
   ): Promise<Attachment[]> {
     try {
+      console.log(`🔧 DEBUG: Uploading ${files.length} files with ticketId: "${ticketId}", commentId: "${commentId}"`);
+      
       // Validate all files first
       for (const file of files) {
         const validation = this.validateFile(file);
@@ -86,11 +101,19 @@ export const attachmentService = {
         formData.append('commentId', commentId);
       }
 
+      console.log(`🔧 DEBUG: FormData contents:`, 
+        Array.from(formData.entries()).map(([key, value]) => 
+          value instanceof File ? [key, `File: ${value.name} (${value.size} bytes)`] : [key, value]
+        )
+      );
+
       const response = await api.post('/attachments/upload-multiple', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
+
+      console.log(`🔧 DEBUG: Multiple upload response:`, response.data);
 
       const result = response.data as UploadResponse;
       
@@ -98,8 +121,13 @@ export const attachmentService = {
         throw new Error(result.message || 'Upload failed');
       }
 
-      return result.data.attachments;
+      const attachments = result.data.attachments;
+      console.log(`🔧 DEBUG: ${attachments.length} files uploaded to paths:`, 
+        attachments.map(a => a.firebasePath)
+      );
+      return attachments;
     } catch (error: any) {
+      console.error(`❌ Multiple upload failed:`, error);
       throw new Error(`Failed to upload files: ${error.response?.data?.message || error.message}`);
     }
   },
