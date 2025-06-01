@@ -17,6 +17,7 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  Body,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { AttachmentsService } from './attachments.service';
@@ -50,11 +51,11 @@ export class AttachmentsController {
   @HttpCode(HttpStatus.CREATED)
   async uploadFile(
     @UploadedFile() file: Express.Multer.File,
-    @Query('ticketId') ticketId?: string,
-    @Query('commentId') commentId?: string,
+    @Body('ticketId') ticketId?: string,
+    @Body('commentId') commentId?: string,
     @Request() req?: any,
   ) {
-    this.logger.log(`Uploading file: ${file?.originalname} for user: ${req.user?.uid}`);
+    this.logger.log(`Uploading file: ${file?.originalname} for user: ${req.user?.uid}, ticketId: ${ticketId}, commentId: ${commentId}`);
     
     if (!file) {
       this.logger.error('No file provided in upload request');
@@ -63,7 +64,7 @@ export class AttachmentsController {
 
     try {
       const result = await this.attachmentsService.uploadFile(file, req.user, ticketId, commentId);
-      this.logger.log(`File uploaded successfully: ${result.id}`);
+      this.logger.log(`File uploaded successfully: ${result.id} to path: ${result.firebasePath}`);
       
       return {
         success: true,
@@ -91,11 +92,11 @@ export class AttachmentsController {
   @HttpCode(HttpStatus.CREATED)
   async uploadMultipleFiles(
     @UploadedFiles() files: Express.Multer.File[],
-    @Query('ticketId') ticketId?: string,
-    @Query('commentId') commentId?: string,
+    @Body('ticketId') ticketId?: string,
+    @Body('commentId') commentId?: string,
     @Request() req?: any,
   ) {
-    this.logger.log(`Uploading ${files?.length || 0} files for user: ${req.user?.uid}`);
+    this.logger.log(`Uploading ${files?.length || 0} files for user: ${req.user?.uid}, ticketId: ${ticketId}, commentId: ${commentId}`);
     
     if (!files || files.length === 0) {
       this.logger.error('No files provided in upload request');
@@ -108,7 +109,7 @@ export class AttachmentsController {
       
       return {
         success: true,
-        data: results,
+        data: { attachments: results },
         message: `${results.length} files uploaded successfully`,
       };
     } catch (error) {
