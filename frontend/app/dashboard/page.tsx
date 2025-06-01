@@ -12,8 +12,7 @@ import {
   ClockIcon, 
   CheckCircleIcon, 
   AlertTriangleIcon,
-  PlusIcon,
-  UserIcon
+  PlusIcon
 } from 'lucide-react';
 import Link from 'next/link';
 
