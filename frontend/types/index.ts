@@ -94,8 +94,7 @@ export enum CommentType {
   STATUS_CHANGE = 'status_change',
   ASSIGNMENT = 'assignment',
   ESCALATION = 'escalation',
-  MERGE = 'merge',
-  SPLIT = 'split'
+  REPLY = 'reply'
 }
 
 export interface TicketComment {
@@ -109,6 +108,11 @@ export interface TicketComment {
   userId: string;
   user: User;
   attachments?: Attachment[];
+  
+  // Reply functionality
+  parentCommentId?: string;
+  parentComment?: TicketComment;
+  replies?: TicketComment[];
 }
 
 // Attachment types

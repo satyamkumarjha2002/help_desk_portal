@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, OneToMany, JoinColumn, Index } from 'typeorm';
 import { User } from './user.entity';
 import { Attachment } from './attachment.entity';
 import { Ticket } from './ticket.entity';
@@ -11,15 +11,14 @@ export enum CommentType {
   STATUS_CHANGE = 'status_change',
   ASSIGNMENT = 'assignment',
   ESCALATION = 'escalation',
-  MERGE = 'merge',
-  SPLIT = 'split'
+  REPLY = 'reply'
 }
 
 /**
  * TicketComment Entity
  * 
  * Represents comments, status changes, and other ticket activities.
- * Supports both public comments and internal notes.
+ * Supports both public comments and internal notes, including threaded replies.
  */
 @Entity('ticket_comments')
 export class TicketComment {
@@ -66,12 +65,31 @@ export class TicketComment {
   @OneToMany(() => Attachment, attachment => attachment.comment)
   attachments: Attachment[];
 
+  // Reply functionality - parent-child relationship
+  @ManyToOne(() => TicketComment, comment => comment.replies, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'parent_comment_id' })
+  parentComment: TicketComment;
+
+  @Column({ name: 'parent_comment_id', type: 'uuid', nullable: true })
+  parentCommentId: string;
+
+  @OneToMany(() => TicketComment, comment => comment.parentComment)
+  replies: TicketComment[];
+
   /**
    * Check if comment is system-generated
    * @returns boolean indicating if system comment
    */
   isSystemComment(): boolean {
-    return this.commentType !== CommentType.COMMENT;
+    return this.commentType !== CommentType.COMMENT && this.commentType !== CommentType.REPLY;
+  }
+
+  /**
+   * Check if this is a reply to another comment
+   * @returns boolean indicating if this is a reply
+   */
+  isReply(): boolean {
+    return !!this.parentCommentId;
   }
 
   /**
@@ -133,6 +151,24 @@ export class TicketComment {
       isInternal: false,
       userId,
       metadata: { assigneeName, assigneeId }
+    };
+  }
+
+  /**
+   * Create a reply comment
+   * @param content - Reply content
+   * @param parentCommentId - ID of the parent comment
+   * @param userId - User making the reply
+   * @returns TicketComment instance
+   */
+  static createReply(content: string, parentCommentId: string, userId: string): Partial<TicketComment> {
+    return {
+      content,
+      commentType: CommentType.REPLY,
+      isInternal: false,
+      userId,
+      parentCommentId,
+      metadata: { parentCommentId }
     };
   }
 } 

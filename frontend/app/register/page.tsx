@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -10,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ThemeSwitcher } from '@/components/theme-switcher';
 import { 
   EyeIcon, 
@@ -24,9 +24,12 @@ import {
   Sparkles,
   CheckCircle,
   Camera,
-  Upload
+  Building,
+  Users
 } from 'lucide-react';
 import { withAuthOnlyPage } from '@/lib/withAuth';
+import { departmentService } from '@/services/departmentService';
+import { Department } from '@/types';
 
 function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -34,22 +37,49 @@ function RegisterPage() {
     email: '',
     password: '',
     confirmPassword: '',
+    departmentId: 'none', // Default to "none" instead of empty string
   });
   const [profilePicture, setProfilePicture] = useState<File | null>(null);
   const [profilePicturePreview, setProfilePicturePreview] = useState<string>('');
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { signUp } = useAuth();
-  const router = useRouter();
+
+  // Load departments on component mount
+  useEffect(() => {
+    loadDepartments();
+  }, []);
+
+  const loadDepartments = async () => {
+    try {
+      setDepartmentsLoading(true);
+      const depts = await departmentService.getActiveDepartments();
+      setDepartments(depts);
+    } catch (error) {
+      console.error('Failed to load departments:', error);
+      // Don't show error for departments since it's optional
+    } finally {
+      setDepartmentsLoading(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({
       ...prev,
       [e.target.name]: e.target.value
+    }));
+  };
+
+  const handleDepartmentChange = (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      departmentId: value
     }));
   };
 
@@ -118,10 +148,17 @@ function RegisterPage() {
     setError('');
 
     try {
-      await signUp(formData.email, formData.password, formData.displayName, profilePicture || undefined);
+      await signUp(
+        formData.email, 
+        formData.password, 
+        formData.displayName, 
+        profilePicture || undefined,
+        formData.departmentId === 'none' ? undefined : formData.departmentId // Convert "none" to undefined
+      );
       // Don't manually redirect - let AuthWrapper handle it
-    } catch (error: any) {
-      setError(error.message || 'Failed to create account. Please try again.');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create account. Please try again.';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -277,6 +314,49 @@ function RegisterPage() {
                     />
                     <Mail className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                   </div>
+                </div>
+
+                {/* Department Selection - Optional */}
+                <div className="space-y-1">
+                  <Label htmlFor="department" className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                    <Building className="h-3 w-3" />
+                    Department 
+                    <span className="text-gray-500 dark:text-gray-400">(Optional)</span>
+                  </Label>
+                  <Select
+                    value={formData.departmentId}
+                    onValueChange={handleDepartmentChange}
+                    disabled={loading || departmentsLoading}
+                  >
+                    <SelectTrigger className="h-9 text-sm border-gray-200 focus:border-purple-500 focus:ring-purple-500 dark:border-gray-600 dark:bg-gray-700/50">
+                      <SelectValue placeholder={departmentsLoading ? "Loading departments..." : "Select your department (optional)"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-3 w-3 text-gray-400" />
+                          <span>No Department (General User)</span>
+                        </div>
+                      </SelectItem>
+                      {departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          <div className="flex items-center gap-2">
+                            <Building className="h-3 w-3 text-blue-500" />
+                            <span>{dept.name}</span>
+                            {dept.description && (
+                              <span className="text-xs text-gray-500">- {dept.description}</span>
+                            )}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {formData.departmentId && formData.departmentId !== 'none'
+                      ? "You'll have admin access to this department" 
+                      : "You can join a department later or use the portal as a general user"
+                    }
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">

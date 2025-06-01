@@ -228,4 +228,74 @@ export class CommentsController {
       throw new InternalServerErrorException(`Failed to retrieve comment statistics: ${error.message}`);
     }
   }
+
+  /**
+   * Add reply to a comment
+   * POST /comments/:commentId/reply
+   */
+  @Post(':commentId/reply')
+  @HttpCode(HttpStatus.CREATED)
+  async addReply(
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+    @Body() body: { content: string },
+    @Request() req: any,
+  ) {
+    this.logger.log(`Adding reply to comment: ${commentId} by user: ${req.user?.uid}`);
+    
+    if (!body.content?.trim()) {
+      throw new BadRequestException('Reply content is required');
+    }
+    
+    try {
+      const result = await this.commentsService.addReply(commentId, body.content, req.user);
+      this.logger.log(`Reply added successfully: ${result.id}`);
+      
+      return {
+        success: true,
+        data: result,
+        message: 'Reply added successfully',
+      };
+    } catch (error) {
+      this.logger.error(`Failed to add reply: ${error.message}`, error.stack);
+      throw new InternalServerErrorException(`Failed to add reply: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get comments for a ticket with threaded replies
+   * GET /comments/ticket/:ticketId/threaded
+   */
+  @Get('ticket/:ticketId/threaded')
+  async getTicketCommentsThreaded(
+    @Param('ticketId', ParseUUIDPipe) ticketId: string,
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    this.logger.log(`Fetching threaded comments for ticket: ${ticketId} by user: ${req.user?.uid}`);
+    
+    try {
+      const pageNum = parseInt(page || '1');
+      const limitNum = parseInt(limit || '50');
+      
+      const result = await this.commentsService.getTicketCommentsWithReplies(
+        ticketId,
+        pageNum,
+        limitNum,
+        req.user
+      );
+      
+      this.logger.log(`Found ${result.comments.length} threaded comments for ticket: ${ticketId}`);
+      
+      return {
+        success: true,
+        data: result.comments,
+        pagination: result.pagination,
+        message: `Found ${result.comments.length} comments with replies`,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch threaded comments for ticket ${ticketId}: ${error.message}`);
+      throw new InternalServerErrorException(`Failed to retrieve threaded comments: ${error.message}`);
+    }
+  }
 } 

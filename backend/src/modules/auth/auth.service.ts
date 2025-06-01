@@ -31,13 +31,13 @@ export class AuthService {
 
   /**
    * Register a new user
-   * Creates user in both Firebase Auth and local database
+   * Creates user in Firebase Auth and local database
    * Handles profile image upload to Firebase Storage
    * 
    * @param email - User email
    * @param password - User password
    * @param displayName - User display name
-   * @param role - User role (optional, defaults to END_USER)
+   * @param role - User role (optional, defaults based on department)
    * @param departmentId - Department ID (optional)
    * @param profileImageBuffer - Profile image buffer (optional)
    * @param profileImageExtension - Profile image file extension (optional)
@@ -55,18 +55,29 @@ export class AuthService {
     this.logger.log(`Attempting to register user with email: ${email}`);
     
     try {
-      // Validate input
       this.validateRegistrationInput(email, password, displayName);
 
-      // Check if user already exists locally
-      const existingUser = await this.userRepository.findOne({ where: { email } });
+      // Auto-assign role based on department selection
+      let userRole = role;
+      if (departmentId && role === UserRole.END_USER) {
+        // If user selects a department, give them MANAGER role for that department
+        userRole = UserRole.MANAGER;
+        this.logger.log(`Auto-assigning MANAGER role for department: ${departmentId}`);
+      }
+
+      // Check if user already exists
+      const existingUser = await this.userRepository.findOne({
+        where: { email },
+      });
+
       if (existingUser) {
         this.logger.warn(`Registration failed: User with email ${email} already exists`);
         throw new ConflictException('User with this email already exists');
       }
 
-      // Create user in Firebase Auth first
       const firebaseAuth = FirebaseConfig.getAuth();
+
+      // Create user in Firebase Auth
       const firebaseUser = await firebaseAuth.createUser({
         email,
         password,
@@ -105,8 +116,8 @@ export class AuthService {
 
       // Set custom claims for role-based access
       await firebaseAuth.setCustomUserClaims(firebaseUser.uid, {
-        role,
-        permissions: this.getRolePermissions(role),
+        role: userRole,
+        permissions: this.getRolePermissions(userRole),
       });
 
       // Create user in local database
@@ -114,7 +125,7 @@ export class AuthService {
         firebaseUid: firebaseUser.uid,
         email,
         displayName,
-        role,
+        role: userRole,
         isActive: true,
         preferences: {},
         departmentId: departmentId || null,

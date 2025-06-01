@@ -99,11 +99,13 @@ export class TicketsService {
       queryBuilder.where('ticket.requesterId = :userId', { userId: currentUser.id });
     } else if (currentUser.role === UserRole.AGENT) {
       queryBuilder.where(
-        '(ticket.assigneeId = :userId OR ticket.assigneeId IS NULL)',
-        { userId: currentUser.id }
+        '(ticket.assigneeId = :userId OR (ticket.assigneeId IS NULL AND ticket.departmentId = :departmentId))', 
+        { userId: currentUser.id, departmentId: currentUser.departmentId }
       );
+    } else if ([UserRole.TEAM_LEAD, UserRole.MANAGER].includes(currentUser.role)) {
+      queryBuilder.where('ticket.departmentId = :departmentId', { departmentId: currentUser.departmentId });
     }
-    // Team leads, managers, admins can see all tickets
+    // Super admins and system admins can see all tickets
 
     // Apply filters
     if (status) {
@@ -196,6 +198,10 @@ export class TicketsService {
     // Check if user can update this ticket
     this.checkTicketUpdatePermission(ticket, currentUser);
 
+    // Store old values for comparison
+    const oldStatus = ticket.status;
+    const oldAssigneeId = ticket.assigneeId;
+
     // Update ticket
     Object.assign(ticket, updateTicketDto);
 
@@ -210,6 +216,16 @@ export class TicketsService {
     }
 
     const updatedTicket = await this.ticketRepository.save(ticket);
+
+    // Send notifications for status changes
+    if (updateTicketDto.status && oldStatus !== updateTicketDto.status) {
+      await this.sendTicketStatusChangeNotifications(ticket, oldStatus, updateTicketDto.status, currentUser);
+    }
+
+    // Send general update notifications for other changes
+    if (updateTicketDto.assigneeId && oldAssigneeId !== updateTicketDto.assigneeId) {
+      await this.sendTicketUpdatedNotifications(ticket, currentUser, oldStatus, oldAssigneeId);
+    }
 
     // Add audit comment for significant changes
     if (updateTicketDto.status || updateTicketDto.assigneeId) {
@@ -237,18 +253,38 @@ export class TicketsService {
 
     // Verify assignee exists and is active
     const assignee = await this.userRepository.findOne({
-      where: { id: assignTicketDto.assigneeId, isActive: true }
+      where: { id: assignTicketDto.assigneeId, isActive: true },
+      relations: ['department']
     });
 
     if (!assignee) {
       throw new NotFoundException('Assignee not found or inactive');
     }
 
+    // For non-admin users, ensure assignee is from the same department as the ticket
+    if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(currentUser.role)) {
+      if (assignee.departmentId !== ticket.departmentId) {
+        throw new ForbiddenException(`Cannot assign ticket to user from different department. Ticket department: ${ticket.departmentId}, Assignee department: ${assignee.departmentId}`);
+      }
+    }
+
+    // Store old values for notifications
+    const oldStatus = ticket.status;
+    const oldAssigneeId = ticket.assigneeId;
+
     // Update assignment
     ticket.assigneeId = assignTicketDto.assigneeId;
     ticket.status = TicketStatus.IN_PROGRESS;
 
     await this.ticketRepository.save(ticket);
+
+    // Send assignment notification
+    await this.notificationsService.notifyTicketAssigned(ticket, assignee, currentUser);
+
+    // Send status change notification if status changed
+    if (oldStatus !== TicketStatus.IN_PROGRESS) {
+      await this.sendTicketStatusChangeNotifications(ticket, oldStatus, TicketStatus.IN_PROGRESS, currentUser);
+    }
 
     // Add assignment comment
     if (assignTicketDto.comment) {
@@ -363,15 +399,39 @@ export class TicketsService {
    * @param user - Current user
    */
   private checkTicketAccess(ticket: Ticket, user: User): void {
-    if (user.role === UserRole.END_USER && ticket.requesterId !== user.id) {
-      throw new ForbiddenException('You can only access your own tickets');
+    // Super admins and system admins have access to all tickets
+    if ([UserRole.SUPER_ADMIN, UserRole.ADMIN].includes(user.role)) {
+      return;
     }
 
-    if (user.role === UserRole.AGENT && 
-        ticket.assigneeId !== user.id && 
-        ticket.requesterId !== user.id) {
-      throw new ForbiddenException('You can only access tickets assigned to you or created by you');
+    // Managers and team leads can access tickets in their department
+    if ([UserRole.MANAGER, UserRole.TEAM_LEAD].includes(user.role)) {
+      if (user.departmentId !== ticket.departmentId) {
+        throw new ForbiddenException(`You can only access tickets from your own department. Your department: ${user.departmentId}, Ticket department: ${ticket.departmentId}`);
+      }
+      return;
     }
+
+    // Agents can access tickets in their department that are assigned to them, requested by them, or created by them
+    if (user.role === UserRole.AGENT) {
+      if (user.departmentId !== ticket.departmentId) {
+        throw new ForbiddenException('You can only access tickets from your own department');
+      }
+      if (ticket.assigneeId !== user.id && ticket.requesterId !== user.id && ticket.createdBy?.id !== user.id) {
+        throw new ForbiddenException('You can only access tickets assigned to you, requested by you, or created by you');
+      }
+      return;
+    }
+
+    // End users can only access their own tickets or tickets they created
+    if (user.role === UserRole.END_USER) {
+      if (ticket.requesterId !== user.id && ticket.createdBy?.id !== user.id) {
+        throw new ForbiddenException('You can only access your own tickets or tickets you created');
+      }
+      return;
+    }
+
+    throw new ForbiddenException('You do not have access to this ticket');
   }
 
   /**
@@ -381,13 +441,43 @@ export class TicketsService {
    * @param user - Current user
    */
   private checkTicketUpdatePermission(ticket: Ticket, user: User): void {
-    if (user.role === UserRole.END_USER && ticket.requesterId !== user.id) {
-      throw new ForbiddenException('You can only update your own tickets');
+    // Super admins and system admins can update all tickets
+    if ([UserRole.SUPER_ADMIN, UserRole.ADMIN].includes(user.role)) {
+      return;
     }
 
-    if (user.role === UserRole.AGENT && ticket.assigneeId !== user.id) {
-      throw new ForbiddenException('You can only update tickets assigned to you');
+    // Managers and team leads can update tickets in their department
+    if ([UserRole.MANAGER, UserRole.TEAM_LEAD].includes(user.role)) {
+      if (user.departmentId !== ticket.departmentId) {
+        throw new ForbiddenException(`You can only update tickets from your own department. Your department: ${user.departmentId}, Ticket department: ${ticket.departmentId}`);
+      }
+      return;
     }
+
+    // Agents can update tickets in their department that are assigned to them OR created by them
+    if (user.role === UserRole.AGENT) {
+      if (user.departmentId !== ticket.departmentId) {
+        throw new ForbiddenException('You can only update tickets from your own department');
+      }
+      if (ticket.assigneeId !== user.id && ticket.createdBy?.id !== user.id) {
+        throw new ForbiddenException('You can only update tickets assigned to you or created by you');
+      }
+      return;
+    }
+
+    // End users can update their own tickets (if not closed/resolved) OR tickets they created
+    if (user.role === UserRole.END_USER) {
+      // Allow if user is the requester OR the creator of the ticket
+      if (ticket.requesterId !== user.id && ticket.createdBy?.id !== user.id) {
+        throw new ForbiddenException('You can only update your own tickets or tickets you created');
+      }
+      if ([TicketStatus.CLOSED, TicketStatus.RESOLVED].includes(ticket.status)) {
+        throw new ForbiddenException('You cannot update closed or resolved tickets');
+      }
+      return;
+    }
+
+    throw new ForbiddenException('You do not have permission to update this ticket');
   }
 
   /**
@@ -501,48 +591,65 @@ export class TicketsService {
   }
 
   /**
-   * Send notifications when a comment is added
+   * Send notifications when a ticket status changes
    */
-  private async sendCommentNotifications(ticket: Ticket, comment: TicketComment, commenter: User): Promise<void> {
+  private async sendTicketStatusChangeNotifications(
+    ticket: Ticket, 
+    oldStatus: TicketStatus, 
+    newStatus: TicketStatus, 
+    changedBy: User
+  ): Promise<void> {
     try {
       const notifyUsers: User[] = [];
 
-      // Notify the requester (if not the commenter)
-      if (ticket.requester && ticket.requester.id !== commenter.id) {
+      // Always notify the requester (if not the one making the change)
+      if (ticket.requester && ticket.requester.id !== changedBy.id) {
         notifyUsers.push(ticket.requester);
       }
 
-      // Notify the assignee (if exists and not the commenter)
-      if (ticket.assignee && ticket.assignee.id !== commenter.id) {
+      // Notify the assignee (if exists and not the one making the change)
+      if (ticket.assignee && ticket.assignee.id !== changedBy.id) {
         notifyUsers.push(ticket.assignee);
       }
 
-      // Get unique users from previous comments (excluding the current commenter)
-      const previousCommenters = await this.commentRepository
-        .createQueryBuilder('comment')
-        .leftJoin('comment.user', 'user')
-        .where('comment.ticketId = :ticketId', { ticketId: ticket.id })
-        .andWhere('comment.userId != :currentUserId', { currentUserId: commenter.id })
-        .andWhere('comment.type = :type', { type: CommentType.COMMENT })
-        .select('user')
-        .distinct(true)
-        .getRawMany();
+      // For critical status changes, also notify department managers and team leads
+      if ([TicketStatus.RESOLVED, TicketStatus.CLOSED, TicketStatus.CANCELLED].includes(newStatus)) {
+        const departmentLeaders = await this.userRepository.find({
+          where: [
+            { role: UserRole.MANAGER, departmentId: ticket.departmentId },
+            { role: UserRole.TEAM_LEAD, departmentId: ticket.departmentId },
+          ]
+        });
 
-      for (const prevCommenter of previousCommenters) {
-        const user = await this.userRepository.findOne({ where: { id: prevCommenter.user_id } });
-        if (user && !notifyUsers.some(u => u.id === user.id)) {
-          notifyUsers.push(user);
+        for (const leader of departmentLeaders) {
+          if (leader.id !== changedBy.id && !notifyUsers.some(u => u.id === leader.id)) {
+            notifyUsers.push(leader);
+          }
         }
       }
 
       // Send notifications
       if (notifyUsers.length > 0) {
-        const commentPreview = comment.content.length > 100 
-          ? comment.content.substring(0, 100) + '...' 
-          : comment.content;
-          
-        await this.notificationsService.notifyTicketCommented(ticket, notifyUsers, commenter, commentPreview);
+        await this.notificationsService.notifyTicketStatusChanged(
+          ticket, 
+          oldStatus, 
+          newStatus, 
+          notifyUsers, 
+          changedBy
+        );
       }
+    } catch (error) {
+      console.error('Failed to send ticket status change notifications:', error);
+    }
+  }
+
+  /**
+   * Send notifications when a comment is added
+   */
+  private async sendCommentNotifications(ticket: Ticket, comment: TicketComment, commenter: User): Promise<void> {
+    try {
+      // Use the enhanced notification logic
+      await this.notificationsService.notifyTicketCommentedEnhanced(ticket, comment, commenter);
     } catch (error) {
       console.error('Failed to send comment notifications:', error);
     }

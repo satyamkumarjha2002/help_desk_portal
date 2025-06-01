@@ -8,6 +8,7 @@ export enum NotificationType {
   TICKET_ASSIGNED = 'ticket_assigned',
   TICKET_UPDATED = 'ticket_updated',
   TICKET_COMMENTED = 'ticket_commented',
+  TICKET_STATUS_CHANGED = 'ticket_status_changed',
   SLA_WARNING = 'sla_warning',
   SLA_BREACH = 'sla_breach',
   MENTION = 'mention',
@@ -80,6 +81,7 @@ export class Notification {
       case NotificationType.TICKET_ASSIGNED:
       case NotificationType.TICKET_UPDATED:
       case NotificationType.TICKET_COMMENTED:
+      case NotificationType.TICKET_STATUS_CHANGED:
       case NotificationType.TICKET_CREATED:
       case NotificationType.TICKET_RESOLVED:
       case NotificationType.TICKET_CLOSED:
@@ -114,6 +116,8 @@ export class Notification {
         return 'edit';
       case NotificationType.TICKET_COMMENTED:
         return 'message-circle';
+      case NotificationType.TICKET_STATUS_CHANGED:
+        return 'refresh-cw';
       case NotificationType.TICKET_CREATED:
         return 'plus-circle';
       case NotificationType.TICKET_RESOLVED:
@@ -145,6 +149,8 @@ export class Notification {
         return 'yellow';
       case NotificationType.TICKET_COMMENTED:
         return 'blue';
+      case NotificationType.TICKET_STATUS_CHANGED:
+        return 'purple';
       case NotificationType.TICKET_CREATED:
         return 'green';
       case NotificationType.TICKET_RESOLVED:

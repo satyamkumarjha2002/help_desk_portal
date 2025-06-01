@@ -329,4 +329,152 @@ export class CommentsService {
       // Don't throw error for notification failures
     }
   }
+
+  /**
+   * Add reply to a comment
+   */
+  async addReply(
+    parentCommentId: string,
+    content: string,
+    currentUser: User
+  ): Promise<TicketComment> {
+    // Validate parent comment exists and user has access
+    const parentComment = await this.commentRepository.findOne({
+      where: { id: parentCommentId },
+      relations: ['ticket', 'ticket.requester', 'ticket.assignee', 'ticket.department'],
+    });
+
+    if (!parentComment) {
+      throw new NotFoundException('Parent comment not found');
+    }
+
+    // Validate ticket access
+    const ticket = await this.validateTicketAccess(parentComment.ticketId, currentUser);
+
+    // Validate reply content
+    this.validateCommentContent(content);
+
+    try {
+      const reply = this.commentRepository.create({
+        content,
+        commentType: CommentType.REPLY,
+        isInternal: false,
+        parentCommentId: parentCommentId,
+        ticketId: ticket.id,
+        userId: currentUser.id,
+        metadata: { parentCommentId }
+      });
+
+      const savedReply = await this.commentRepository.save(reply);
+
+      // Load reply with all relations
+      const fullReply = await this.commentRepository.findOne({
+        where: { id: savedReply.id },
+        relations: ['user', 'parentComment', 'attachments', 'attachments.uploadedBy'],
+      });
+
+      if (!fullReply) {
+        throw new NotFoundException('Reply not found after creation');
+      }
+
+      // Send notifications for replies
+      await this.sendReplyNotifications(ticket, fullReply, currentUser);
+
+      return fullReply;
+    } catch (error) {
+      throw new BadRequestException(`Failed to add reply: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get comments with replies in threaded structure
+   */
+  async getTicketCommentsWithReplies(
+    ticketId: string,
+    page: number = 1,
+    limit: number = 50,
+    currentUser: User
+  ): Promise<{
+    comments: TicketComment[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }> {
+    // Validate ticket access
+    await this.validateTicketAccess(ticketId, currentUser);
+
+    // Get top-level comments (not replies) with their replies
+    const queryBuilder = this.commentRepository.createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.user', 'user')
+      .leftJoinAndSelect('comment.replies', 'replies')
+      .leftJoinAndSelect('replies.user', 'replyUser')
+      .leftJoinAndSelect('comment.attachments', 'attachments')
+      .leftJoinAndSelect('replies.attachments', 'replyAttachments')
+      .leftJoinAndSelect('attachments.uploadedBy', 'attachmentUploader')
+      .leftJoinAndSelect('replyAttachments.uploadedBy', 'replyAttachmentUploader')
+      .where('comment.ticketId = :ticketId', { ticketId })
+      .andWhere('comment.parentCommentId IS NULL') // Only top-level comments
+      .orderBy('comment.createdAt', 'DESC')
+      .addOrderBy('replies.createdAt', 'ASC'); // Replies in chronological order
+
+    const total = await queryBuilder.getCount();
+    const comments = await queryBuilder
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
+
+    // Process comments to ensure they have valid data structure
+    const processedComments = comments.map(comment => ({
+      ...comment,
+      user: comment.user || {
+        id: 'system',
+        displayName: 'System',
+        email: 'system@helpdesk.com',
+        role: 'admin' as any,
+        isActive: true,
+        preferences: {},
+        createdAt: comment.createdAt,
+        updatedAt: comment.createdAt,
+        firebaseUid: 'system'
+      },
+      replies: (comment.replies || []).map(reply => ({
+        ...reply,
+        user: reply.user || {
+          id: 'system',
+          displayName: 'System',
+          email: 'system@helpdesk.com',
+          role: 'admin' as any,
+          isActive: true,
+          preferences: {},
+          createdAt: reply.createdAt,
+          updatedAt: reply.createdAt,
+          firebaseUid: 'system'
+        }
+      }))
+    }));
+
+    return {
+      comments: processedComments as TicketComment[],
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  /**
+   * Send notifications when a reply is added
+   */
+  private async sendReplyNotifications(
+    ticket: Ticket,
+    reply: TicketComment,
+    replier: User
+  ): Promise<void> {
+    try {
+      // Use the enhanced notification logic for replies too
+      await this.notificationsService.notifyTicketCommentedEnhanced(ticket, reply, replier);
+    } catch (error) {
+      // Don't throw error for notification failures
+    }
+  }
 } 

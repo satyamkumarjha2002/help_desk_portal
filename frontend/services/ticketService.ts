@@ -66,7 +66,7 @@ export const ticketService = {
 
   // Assign ticket
   async assignTicket(id: string, data: AssignTicketRequest): Promise<Ticket> {
-    const response = await api.patch(`/tickets/${id}/assign`, data);
+    const response = await api.post(`/tickets/${id}/assign`, data);
     return response.data;
   },
 

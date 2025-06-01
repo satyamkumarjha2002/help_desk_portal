@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmationDialog } from '@/components/ui/confirmation-dialog';
 import { AppHeader } from '@/components/app-header';
+import { ThreadedComments } from '@/components/ui/threaded-comments';
 import { 
   ArrowLeft, 
   Edit2, 
@@ -48,6 +49,7 @@ import {
 } from '@/types';
 import Link from 'next/link';
 import { withProtectedPage } from '@/lib/withAuth';
+import { canUserEditTicket, canUserChangeTicketStatus } from '@/lib/ticketPermissions';
 
 function TicketDetailsPage() {
   const { user } = useAuth();
@@ -124,23 +126,12 @@ function TicketDetailsPage() {
       setCommentsLoading(true);
       setCommentError('');
       
-      const result = await commentService.getTicketComments(ticketId, 1, 50);
+      // Use the new threaded comments endpoint
+      const result = await commentService.getTicketCommentsThreaded(ticketId, 1, 50);
       setComments(result.comments);
       setCommentPagination(result.pagination);
       
-      // Load attachments for each comment
-      const attachmentsMap: Record<string, Attachment[]> = {};
-      for (const comment of result.comments) {
-        if (comment.id) {
-          try {
-            const commentAttachments = await attachmentService.getCommentAttachments(comment.id);
-            attachmentsMap[comment.id] = commentAttachments;
-          } catch (error) {
-            attachmentsMap[comment.id] = [];
-          }
-        }
-      }
-      setCommentAttachmentsMap(attachmentsMap);
+      // No need to load attachments separately as they're included in the threaded response
     } catch (error: any) {
       setCommentError('Failed to load comments');
       setComments([]);
@@ -368,34 +359,6 @@ function TicketDetailsPage() {
     return status.replace('_', ' ').toUpperCase();
   };
 
-  const canEditTicket = () => {
-    if (!user || !ticket) return false;
-    
-    // Admin and managers can edit any ticket
-    if ([UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER].includes(user.role)) {
-      return true;
-    }
-    
-    // Agents can edit tickets in their department
-    if (user.role === UserRole.AGENT && user.departmentId === ticket.department?.id) {
-      return true;
-    }
-    
-    // Users can edit their own tickets if not closed
-    if (user.id === ticket.requester.id && ticket.status !== TicketStatus.CLOSED) {
-      return true;
-    }
-    
-    return false;
-  };
-
-  const canChangeStatus = () => {
-    if (!user || !ticket) return false;
-    
-    // Admin, managers, and agents can change status
-    return [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.MANAGER, UserRole.AGENT].includes(user.role);
-  };
-
   if (!user) {
     return null;
   }
@@ -484,7 +447,7 @@ function TicketDetailsPage() {
             </div>
             
             <div className="flex items-center space-x-2">
-              {canChangeStatus() && (
+              {canUserChangeTicketStatus(user, ticket) && (
                 <Select 
                   value={ticket.status} 
                   onValueChange={(value) => handleStatusChange(value as TicketStatus)}
@@ -504,7 +467,7 @@ function TicketDetailsPage() {
                 </Select>
               )}
               
-              {canEditTicket() && (
+              {canUserEditTicket(user, ticket) && (
                 <Button 
                   variant="outline" 
                   onClick={() => setIsEditing(!isEditing)}
@@ -671,14 +634,6 @@ function TicketDetailsPage() {
 
                 {/* Comments List */}
                 <div className="space-y-4">
-                  {/* Comment Loading State */}
-                  {commentsLoading && (
-                    <div className="text-center py-6">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
-                      <p className="text-sm text-gray-500">Loading comments...</p>
-                    </div>
-                  )}
-
                   {/* Comment Error State */}
                   {commentError && (
                     <Alert className="mb-4" variant="destructive">
@@ -697,126 +652,13 @@ function TicketDetailsPage() {
                     </Alert>
                   )}
 
-                  {/* Comments */}
-                  {!commentsLoading && comments && comments.length > 0 ? (
-                    comments.map((comment) => (
-                      <div key={comment.id} className="border rounded-lg p-4">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="font-medium">
-                              {comment.user?.displayName || comment.user?.email || `User ${comment.userId?.substring(0, 8)}` || 'Unknown User'}
-                            </span>
-                            <span 
-                              className="text-sm text-gray-500 cursor-help" 
-                              title={commentService.getFullTimestamp(comment.createdAt)}
-                            >
-                              {commentService.formatCommentDate(comment.createdAt)}
-                            </span>
-                            {comment.commentType !== CommentType.COMMENT && (
-                              <Badge variant="outline" className="text-xs">
-                                {commentService.getCommentTypeDisplay(comment.commentType)}
-                              </Badge>
-                            )}
-                          </div>
-                          
-                          {/* Comment Actions */}
-                          {user && (
-                            <div className="flex items-center gap-2">
-                              {commentService.canEditComment(comment, user.id, user.role) && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-blue-600 hover:text-blue-700 text-xs px-2 py-1"
-                                >
-                                  Edit
-                                </Button>
-                              )}
-                              {commentService.canDeleteComment(comment, user.id, user.role) && (
-                                <ConfirmationDialog
-                                  title="Delete Comment"
-                                  description="Are you sure you want to delete this comment? This action cannot be undone."
-                                  confirmText="Delete"
-                                  cancelText="Cancel"
-                                  variant="destructive"
-                                  onConfirm={async () => {
-                                    try {
-                                      await commentService.deleteComment(comment.id);
-                                      await loadTicketComments(ticket.id);
-                                    } catch (error) {
-                                      setError('Failed to delete comment');
-                                    }
-                                  }}
-                                >
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-red-500 hover:text-red-700 text-xs px-2 py-1"
-                                  >
-                                    Delete
-                                  </Button>
-                                </ConfirmationDialog>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <div className="prose dark:prose-invert prose-sm max-w-none mb-3">
-                          <p className="whitespace-pre-wrap">{comment.content || 'No content'}</p>
-                        </div>
-                        
-                        {/* Comment Attachments - Use comment-specific attachments */}
-                        {commentAttachmentsMap[comment.id] && commentAttachmentsMap[comment.id].length > 0 && (
-                          <div className="mt-3 space-y-2">
-                            <div className="text-xs text-gray-500 font-medium">
-                              Attachments ({commentAttachmentsMap[comment.id].length}):
-                            </div>
-                            <div className="space-y-2">
-                              {commentAttachmentsMap[comment.id].map((attachment) => (
-                                <div key={attachment.id} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded text-sm">
-                                  <div className="flex-shrink-0">
-                                    {attachmentService.isImage(attachment.originalFilename) ? (
-                                      <div className="w-6 h-6 bg-blue-100 dark:bg-blue-900/30 rounded flex items-center justify-center">
-                                        <svg className="w-3 h-3 text-blue-600 dark:text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                                          <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
-                                        </svg>
-                                      </div>
-                                    ) : (
-                                      <div className="w-6 h-6 bg-gray-100 dark:bg-gray-700 rounded flex items-center justify-center">
-                                        <Paperclip className="w-3 h-3 text-gray-600 dark:text-gray-400" />
-                                      </div>
-                                    )}
-                                  </div>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="truncate">{attachment.originalFilename}</div>
-                                    <div className="text-xs text-gray-500">{attachmentService.formatFileSize(attachment.fileSize)}</div>
-                                  </div>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      try {
-                                        const downloadUrl = attachmentService.getDownloadUrl(attachment);
-                                        window.open(downloadUrl, '_blank');
-                                      } catch (error) {
-                                        // Handle error silently
-                                      }
-                                    }}
-                                    className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs px-2 py-1"
-                                  >
-                                    {attachmentService.isImage(attachment.originalFilename) ? 'View' : 'Download'}
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : !commentsLoading && (
-                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No comments yet. Be the first to add one!</p>
-                    </div>
-                  )}
+                  {/* Threaded Comments Component */}
+                  <ThreadedComments
+                    comments={comments}
+                    currentUser={user!}
+                    onCommentAdded={() => loadTicketComments(ticket.id)}
+                    isLoading={commentsLoading}
+                  />
 
                   {/* Pagination if needed */}
                   {commentPagination && commentPagination.totalPages > 1 && (

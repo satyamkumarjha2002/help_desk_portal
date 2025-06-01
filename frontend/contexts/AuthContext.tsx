@@ -23,7 +23,7 @@ interface AuthContextType {
   firebaseUser: FirebaseUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, displayName: string, profilePicture?: File) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string, profilePicture?: File, departmentId?: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<User>) => Promise<User>;
@@ -115,7 +115,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const signUp = async (email: string, password: string, displayName: string, profilePicture?: File) => {
+  const signUp = async (email: string, password: string, displayName: string, profilePicture?: File, departmentId?: string) => {
     try {
       // Prepare form data for multipart upload
       const formData = new FormData();
@@ -123,6 +123,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       formData.append('password', password);
       formData.append('displayName', displayName);
       formData.append('role', UserRole.END_USER);
+      formData.append('departmentId', departmentId || '');
 
       // Add profile picture if provided
       if (profilePicture) {
