@@ -8,8 +8,7 @@ async function bootstrap() {
   // Enable CORS for frontend
   app.enableCors({
     origin: [
-      'http://localhost:3000',  // Frontend development server
-      'http://127.0.0.1:3000',  // Alternative localhost
+      process.env.FRONTEND_URL
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
@@ -29,7 +28,7 @@ async function bootstrap() {
     transform: true,
   }));
 
-  const port = process.env.PORT ?? 3001;
+  const port = process.env.PORT ?? 8080;
   await app.listen(port);
   console.log(`Backend server is running on http://localhost:${port}`);
 }
