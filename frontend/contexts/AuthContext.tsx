@@ -8,7 +8,10 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  reauthenticateWithCredential,
+  updatePassword,
+  EmailAuthProvider
 } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { auth, storage } from '@/lib/firebase';
@@ -26,6 +29,7 @@ interface AuthContextType {
   updateUserProfile: (data: Partial<User>) => Promise<User>;
   updateProfileWithImage: (data: Partial<User>, profileImage?: File) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  deleteAccount: () => Promise<void>;
   uploadProfilePicture: (file: File) => Promise<string>;
   deleteProfilePicture: () => Promise<void>;
 }
@@ -65,15 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setUser(null);
         }
       } catch (error) {
-        console.error('Error fetching user data:', error);
-        // If we can't fetch user data but Firebase user exists, 
-        // it might be because the backend user doesn't exist yet
-        if (firebaseUser) {
-          console.warn('Firebase user exists but backend user not found, signing out...');
-          await signOut(auth);
-        }
         setUser(null);
-      } finally {
         setLoading(false);
       }
     });
@@ -82,35 +78,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const uploadProfilePicture = async (file: File): Promise<string> => {
-    if (!firebaseUser) {
-      throw new Error('User must be authenticated');
-    }
-
-    const fileExtension = file.name.split('.').pop();
-    const fileName = `avatar.${fileExtension}`;
-    const storageRef = ref(storage, `user-profiles/${firebaseUser.uid}/${fileName}`);
-    
     try {
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
+      const storageRef = ref(storage, `profile-pictures/${firebaseUser?.uid}/${Date.now()}_${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      return await getDownloadURL(snapshot.ref);
     } catch (error) {
-      console.error('Error uploading profile picture:', error);
-      throw error;
+      throw new Error('Failed to upload profile picture');
     }
   };
 
   const deleteProfilePicture = async (): Promise<void> => {
-    if (!firebaseUser || !user?.profilePicturePath) {
+    if (!user || !user.profilePictureUrl) {
       return;
     }
 
     try {
-      const storageRef = ref(storage, user.profilePicturePath);
-      await deleteObject(storageRef);
+      if (user.profilePictureUrl && user.profilePictureUrl.includes('firebasestorage.googleapis.com')) {
+        const storageRef = ref(storage, user.profilePictureUrl);
+        await deleteObject(storageRef);
+      }
     } catch (error) {
-      console.error('Error deleting profile picture:', error);
-      throw error;
+      throw new Error('Failed to delete profile picture');
     }
   };
 
@@ -124,7 +112,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const response = await api.post('/auth/login', { idToken: token });
       setUser(response.data.user);
     } catch (error) {
-      console.error('Sign in error:', error);
       throw error;
     } finally {
       setLoading(false);
@@ -164,8 +151,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       setFirebaseUser(credential.user);
     } catch (error: any) {
-      console.error('Sign up error:', error);
-      
       // Provide more specific error messages
       if (error.response?.data?.message) {
         throw new Error(error.response.data.message);
@@ -185,7 +170,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(null);
       setFirebaseUser(null);
     } catch (error) {
-      console.error('Logout error:', error);
       throw error;
     }
   };
@@ -194,7 +178,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       await sendPasswordResetEmail(auth, email);
     } catch (error) {
-      console.error('Password reset error:', error);
       throw error;
     }
   };
@@ -219,30 +202,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const updateProfileWithImage = async (data: Partial<User>, profileImage?: File): Promise<User> => {
+  const updateProfileWithImage = async (
+    profileData?: Partial<User>, 
+    imageFile?: File
+  ) => {
+    if (!user) throw new Error('No user logged in');
+
     try {
-      if (profileImage) {
-        // Use the new endpoint that supports file upload
-        const formData = new FormData();
-        
-        // Add all update data to form data
-        Object.keys(data).forEach(key => {
-          const value = data[key as keyof User];
-          if (value !== undefined && value !== null) {
-            formData.append(key, value.toString());
-          }
-        });
-        
-        // Add profile image
-        formData.append('profileImage', profileImage);
-        
-        const response = await api.patch('/auth/profile-with-image', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-        
-        const updatedUser = response.data.data?.user || response.data.user;
+      setLoading(true);
+      
+      let profilePictureUrl = user.profilePictureUrl;
+      
+      if (imageFile) {
+        if (user.profilePictureUrl) {
+          await deleteProfilePicture();
+        }
+        profilePictureUrl = await uploadProfilePicture(imageFile);
+      }
+
+      const updateData = {
+        ...profileData,
+        ...(profilePictureUrl && { profilePictureUrl })
+      };
+
+      const response = await api.patch('/auth/profile-with-image', updateData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      if (response.data.success) {
+        const updatedUser = { ...user, ...updateData };
         setUser(updatedUser);
         
         // Update Firebase profile
@@ -255,43 +245,49 @@ export function AuthProvider({ children }: AuthProviderProps) {
         
         return updatedUser;
       } else {
-        // Use the existing endpoint for updates without image
-        return await updateUserProfile(data);
+        throw new Error(response.data.message || 'Profile update failed');
       }
-    } catch (error) {
-      console.error('Profile update with image error:', error);
+    } catch (error: any) {
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
   const changePassword = async (currentPassword: string, newPassword: string) => {
+    if (!user || !auth.currentUser) throw new Error('No user logged in');
+
     try {
-      if (!firebaseUser) {
-        throw new Error('User must be authenticated');
+      setLoading(true);
+      
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(auth.currentUser, credential);
+      await updatePassword(auth.currentUser, newPassword);
+    } catch (error: any) {
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!user || !auth.currentUser) throw new Error('No user logged in');
+
+    try {
+      setLoading(true);
+      
+      if (user.profilePictureUrl) {
+        await deleteProfilePicture();
       }
 
-      // Re-authenticate user before changing password for security
-      const { EmailAuthProvider, reauthenticateWithCredential, updatePassword } = await import('firebase/auth');
+      await api.patch('/auth/delete-account');
+      await auth.currentUser.delete();
       
-      const credential = EmailAuthProvider.credential(firebaseUser.email!, currentPassword);
-      await reauthenticateWithCredential(firebaseUser, credential);
-      
-      // Update password in Firebase (this keeps the user logged in)
-      await updatePassword(firebaseUser, newPassword);
-      
-      // No need to call backend as Firebase handles password management
-      // The user should remain logged in after password change
-      
+      setUser(null);
     } catch (error: any) {
-      console.error('Password change error:', error);
-      if (error.code === 'auth/wrong-password') {
-        throw new Error('Current password is incorrect');
-      } else if (error.code === 'auth/weak-password') {
-        throw new Error('New password is too weak');
-      } else if (error.code === 'auth/requires-recent-login') {
-        throw new Error('Please sign in again before changing your password');
-      }
-      throw new Error(error.message || 'Failed to change password');
+      throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -306,6 +302,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     updateUserProfile,
     updateProfileWithImage,
     changePassword,
+    deleteAccount,
     uploadProfilePicture,
     deleteProfilePicture,
   };

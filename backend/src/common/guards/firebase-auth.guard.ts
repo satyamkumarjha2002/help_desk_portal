@@ -1,8 +1,6 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { FirebaseConfig } from '../../config/firebase.config';
-import { User } from '../../entities/user.entity';
+import { AuthGuardService } from './auth.service';
 
 /**
  * Firebase Authentication Guard
@@ -13,8 +11,7 @@ import { User } from '../../entities/user.entity';
 @Injectable()
 export class FirebaseAuthGuard implements CanActivate {
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    private readonly authGuardService: AuthGuardService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -33,10 +30,7 @@ export class FirebaseAuthGuard implements CanActivate {
       const decodedToken = await firebaseAuth.verifyIdToken(idToken);
 
       // Get user from database
-      const user = await this.userRepository.findOne({
-        where: { firebaseUid: decodedToken.uid },
-        relations: ['department'],
-      });
+      const user = await this.authGuardService.findUserByFirebaseUid(decodedToken.uid);
 
       if (!user) {
         throw new UnauthorizedException('User not found in database');

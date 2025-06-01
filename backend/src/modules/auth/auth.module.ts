@@ -3,8 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { FirebaseAuthGuard } from '../../common/guards/firebase-auth.guard';
 import { User } from '../../entities/user.entity';
+import { Department } from '../../entities/department.entity';
 
 /**
  * Authentication Module
@@ -14,17 +14,15 @@ import { User } from '../../entities/user.entity';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, Department]),
     ConfigModule,
   ],
   controllers: [AuthController],
   providers: [
     AuthService,
-    FirebaseAuthGuard,
   ],
   exports: [
     AuthService,
-    FirebaseAuthGuard,
   ],
 })
 export class AuthModule {} 

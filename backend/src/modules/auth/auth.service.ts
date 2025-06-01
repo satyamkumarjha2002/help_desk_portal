@@ -280,6 +280,16 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
+    // Check if email is being updated and if it's unique
+    if (updateData.email && updateData.email !== user.email) {
+      const existingUser = await this.userRepository.findOne({ 
+        where: { email: updateData.email } 
+      });
+      if (existingUser) {
+        throw new ConflictException('Email address is already in use');
+      }
+    }
+
     let profilePictureUrl = user.profilePictureUrl;
     let profilePicturePath = user.profilePicturePath;
 
@@ -319,12 +329,16 @@ export class AuthService {
       ...(profilePicturePath !== undefined && { profilePicturePath })
     };
 
-    // Update Firebase Auth if display name or photo URL changed
+    // Update Firebase Auth if display name, email, or photo URL changed
     const firebaseAuth = FirebaseConfig.getAuth();
     const updatePayload: any = {};
     
     if (finalUpdateData.displayName && finalUpdateData.displayName !== user.displayName) {
       updatePayload.displayName = finalUpdateData.displayName;
+    }
+
+    if (finalUpdateData.email && finalUpdateData.email !== user.email) {
+      updatePayload.email = finalUpdateData.email;
     }
     
     if (profilePictureUrl && profilePictureUrl !== user.profilePictureUrl) {
@@ -397,15 +411,10 @@ export class AuthService {
    * Change user password
    * Updates password in Firebase Auth
    * 
-   * Note: This method is currently disabled as password changes
-   * are handled entirely through Firebase Auth on the frontend
-   * to prevent session invalidation and automatic logout.
-   * 
    * @param firebaseUid - Firebase UID
    * @param currentPassword - Current password for verification
    * @param newPassword - New password
    */
-  /*
   async changePassword(firebaseUid: string, currentPassword: string, newPassword: string): Promise<void> {
     try {
       const firebaseAuth = FirebaseConfig.getAuth();
@@ -415,8 +424,9 @@ export class AuthService {
         throw new NotFoundException('User not found');
       }
 
-      // For security, we require the user to verify their current password
-      // This will be handled on the frontend by re-authenticating before calling this endpoint
+      // Note: For security, current password verification should be handled
+      // on the frontend by re-authenticating the user before calling this endpoint.
+      // This prevents session invalidation and provides better UX.
       
       // Update password in Firebase Auth
       await firebaseAuth.updateUser(firebaseUid, {
@@ -429,7 +439,40 @@ export class AuthService {
       throw new BadRequestException('Failed to change password');
     }
   }
-  */
+
+  /**
+   * Delete user account permanently
+   * Removes user from both Firebase Auth and local database
+   * Also deletes profile image from Firebase Storage
+   * 
+   * @param userId - User ID
+   * @param firebaseUid - Firebase UID
+   */
+  async deleteAccount(userId: string, firebaseUid: string): Promise<void> {
+    try {
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      // Delete profile image if exists
+      if (user.profilePicturePath) {
+        await this.deleteProfileImage(user.profilePicturePath);
+      }
+
+      // Delete from Firebase Auth
+      const firebaseAuth = FirebaseConfig.getAuth();
+      await firebaseAuth.deleteUser(firebaseUid);
+
+      // Delete from local database
+      await this.userRepository.remove(user);
+
+      this.logger.log(`Account deleted for user: ${firebaseUid}`);
+    } catch (error) {
+      this.logger.error(`Account deletion failed for user ${firebaseUid}:`, error);
+      throw new BadRequestException('Failed to delete account');
+    }
+  }
 
   /**
    * Delete profile image from Firebase Storage

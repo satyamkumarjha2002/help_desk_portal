@@ -26,8 +26,9 @@ import {
   Camera,
   Upload
 } from 'lucide-react';
+import { withAuthOnlyPage } from '@/lib/withAuth';
 
-export default function RegisterPage() {
+function RegisterPage() {
   const [formData, setFormData] = useState({
     displayName: '',
     email: '',
@@ -120,7 +121,6 @@ export default function RegisterPage() {
       await signUp(formData.email, formData.password, formData.displayName, profilePicture || undefined);
       router.push('/dashboard');
     } catch (error: any) {
-      console.error('Registration error:', error);
       setError(error.message || 'Failed to create account. Please try again.');
     } finally {
       setLoading(false);
@@ -446,4 +446,7 @@ export default function RegisterPage() {
       </div>
     </div>
   );
-} 
+}
+
+// Use the HOC to redirect authenticated users
+export default withAuthOnlyPage(RegisterPage); 

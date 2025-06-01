@@ -311,12 +311,7 @@ export class AuthController {
    * Requires authentication
    * 
    * PATCH /auth/change-password
-   * 
-   * Note: This endpoint is currently disabled as password changes
-   * are handled entirely through Firebase Auth on the frontend
-   * to prevent session invalidation and automatic logout.
    */
-  /*
   @Patch('change-password')
   @UseGuards(FirebaseAuthGuard)
   async changePassword(
@@ -336,5 +331,25 @@ export class AuthController {
       message: 'Password changed successfully'
     };
   }
-  */
+
+  /**
+   * Delete user account
+   * Requires authentication
+   * Permanently deletes the user account and all associated data
+   * 
+   * DELETE /auth/account
+   */
+  @Patch('delete-account')
+  @UseGuards(FirebaseAuthGuard)
+  async deleteAccount(@Request() req) {
+    const userId = req.user.id;
+    const firebaseUid = req.user.firebaseUid;
+    
+    await this.authService.deleteAccount(userId, firebaseUid);
+
+    return {
+      success: true,
+      message: 'Account deleted successfully'
+    };
+  }
 } 
