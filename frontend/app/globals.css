@@ -95,3 +95,45 @@ a {
     @apply bg-background text-foreground;
   }
 }
+
+/* Fix navbar shaking - prevent any focus outlines and layout shifts */
+header *:focus,
+header *:focus-visible,
+header *:active,
+header button:focus,
+header button:focus-visible,
+header button:active,
+header a:focus,
+header a:focus-visible,
+header a:active {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Ensure all navbar elements have fixed box-sizing */
+header,
+header *,
+header *::before,
+header *::after {
+  box-sizing: border-box !important;
+}
+
+/* Prevent any transitions from causing layout shifts */
+header button,
+header a {
+  transform: none !important;
+}
+
+header button:hover,
+header a:hover {
+  transform: none !important;
+}
+
+/* Force consistent button sizes */
+header button {
+  min-height: 40px;
+  min-width: fit-content;
+  flex-shrink: 0 !important;
+}

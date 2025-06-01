@@ -5,9 +5,15 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { getDatabaseConfig } from './config/database.config';
 import { FirebaseConfig } from './config/firebase.config';
+import { AuthModule as GuardAuthModule } from './common/guards/auth.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TicketsModule } from './modules/tickets/tickets.module';
 import { PrioritiesModule } from './modules/priorities/priorities.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
+import { CommentsModule } from './modules/comments/comments.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 // Import entities
 import { User } from './entities/user.entity';
@@ -17,6 +23,7 @@ import { Category } from './entities/category.entity';
 import { Ticket } from './entities/ticket.entity';
 import { TicketComment } from './entities/ticket-comment.entity';
 import { Attachment } from './entities/attachment.entity';
+import { Notification } from './entities/notification.entity';
 
 /**
  * Main Application Module
@@ -26,7 +33,7 @@ import { Attachment } from './entities/attachment.entity';
  * - Database connection (PostgreSQL with TypeORM)
  * - Firebase integration
  * - Core entities
- * - Feature modules (Auth, Tickets, Priorities)
+ * - Feature modules (Auth, Tickets, Priorities, Departments, Categories, Attachments, Comments, Notifications)
  */
 @Module({
   imports: [
@@ -43,7 +50,7 @@ import { Attachment } from './entities/attachment.entity';
       inject: [ConfigService],
     }),
 
-    // Register entities
+    // Register entities globally
     TypeOrmModule.forFeature([
       User,
       Department,
@@ -52,12 +59,21 @@ import { Attachment } from './entities/attachment.entity';
       Ticket,
       TicketComment,
       Attachment,
+      Notification,
     ]),
+
+    // Global auth module for guards
+    GuardAuthModule,
 
     // Feature modules
     AuthModule,
     TicketsModule,
     PrioritiesModule,
+    DepartmentsModule,
+    CategoriesModule,
+    AttachmentsModule,
+    CommentsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

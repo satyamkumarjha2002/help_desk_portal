@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsArray, Length, IsObject } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsArray, Length, IsObject, IsEnum } from 'class-validator';
+import { CommentType } from '../../../entities/ticket-comment.entity';
 
 export class AddCommentDto {
   @IsString()
@@ -9,6 +10,10 @@ export class AddCommentDto {
   @IsOptional()
   @IsBoolean()
   isInternal?: boolean = false;
+
+  @IsOptional()
+  @IsEnum(CommentType)
+  type?: CommentType = CommentType.COMMENT;
 
   @IsOptional()
   @IsObject()

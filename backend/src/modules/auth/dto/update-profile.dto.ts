@@ -1,4 +1,4 @@
-import { IsString, MinLength, MaxLength, IsOptional, IsEnum, IsObject, IsUrl, ValidateIf } from 'class-validator';
+import { IsString, MinLength, MaxLength, IsOptional, IsEnum, IsObject, IsUrl, ValidateIf, IsEmail } from 'class-validator';
 import { UserRole } from '../../../entities/user.entity';
 
 /**
@@ -13,6 +13,10 @@ export class UpdateProfileDto {
   @MinLength(2, { message: 'Display name must be at least 2 characters long' })
   @MaxLength(100, { message: 'Display name must not exceed 100 characters' })
   displayName?: string;
+
+  @IsOptional()
+  @IsEmail({}, { message: 'Email must be a valid email address' })
+  email?: string;
 
   @IsOptional()
   @IsEnum(UserRole, { message: 'Invalid user role' })

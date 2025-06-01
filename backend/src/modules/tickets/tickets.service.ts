@@ -2,8 +2,12 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, Like, In } from 'typeorm';
 import { Ticket, TicketStatus } from '../../entities/ticket.entity';
-import { TicketComment } from '../../entities/ticket-comment.entity';
+import { TicketComment, CommentType } from '../../entities/ticket-comment.entity';
 import { User, UserRole } from '../../entities/user.entity';
+import { Priority } from '../../entities/priority.entity';
+import { Category } from '../../entities/category.entity';
+import { Department } from '../../entities/department.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateTicketDto, UpdateTicketDto, AddCommentDto, AssignTicketDto } from './dto';
 
 /**
@@ -21,7 +25,24 @@ export class TicketsService {
     private readonly commentRepository: Repository<TicketComment>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Priority)
+    private readonly priorityRepository: Repository<Priority>,
+    @InjectRepository(Category)
+    private readonly categoryRepository: Repository<Category>,
+    @InjectRepository(Department)
+    private readonly departmentRepository: Repository<Department>,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  /**
+   * Generate unique ticket number
+   */
+  private async generateTicketNumber(): Promise<string> {
+    const year = new Date().getFullYear();
+    const count = await this.ticketRepository.count();
+    const paddedCount = (count + 1).toString().padStart(6, '0');
+    return `HD-${year}-${paddedCount}`;
+  }
 
   /**
    * Create a new ticket
@@ -144,7 +165,10 @@ export class TicketsService {
         'createdBy',
         'comments',
         'comments.user',
-        'attachments'
+        'comments.attachments',
+        'comments.attachments.uploadedBy',
+        'attachments',
+        'attachments.uploadedBy'
       ],
     });
 
@@ -250,12 +274,28 @@ export class TicketsService {
     const ticket = await this.getTicketById(ticketId, currentUser);
 
     const comment = this.commentRepository.create({
-      ...addCommentDto,
+      content: addCommentDto.content,
+      isInternal: addCommentDto.isInternal || false,
+      commentType: addCommentDto.type || CommentType.COMMENT,
+      metadata: addCommentDto.metadata || {},
       ticketId: ticket.id,
       userId: currentUser.id,
     });
 
-    return await this.commentRepository.save(comment);
+    const savedComment = await this.commentRepository.save(comment);
+
+    // Load comment with all relations including attachments
+    const fullComment = await this.commentRepository.findOne({
+      where: { id: savedComment.id },
+      relations: ['user', 'attachments', 'attachments.uploadedBy'],
+    });
+
+    // Send comment notifications (only for regular comments, not system-generated ones)
+    if (addCommentDto.type === CommentType.COMMENT) {
+      await this.sendCommentNotifications(ticket, fullComment!, currentUser);
+    }
+
+    return fullComment!;
   }
 
   /**
@@ -377,8 +417,134 @@ export class TicketsService {
         userId: user.id,
         content: content.trim(),
         isInternal: true,
+        commentType: CommentType.STATUS_CHANGE,
         metadata,
       });
+    }
+  }
+
+  // Notification helper methods
+
+  /**
+   * Send notifications when a ticket is created
+   */
+  private async sendTicketCreatedNotifications(ticket: Ticket, creator: User): Promise<void> {
+    try {
+      // Get department managers and team leads
+      const managers = await this.userRepository.find({
+        where: [
+          { role: UserRole.MANAGER, departmentId: ticket.departmentId },
+          { role: UserRole.TEAM_LEAD, departmentId: ticket.departmentId },
+          { role: UserRole.ADMIN },
+          { role: UserRole.SUPER_ADMIN }
+        ]
+      });
+
+      // Send notifications to managers and admins
+      for (const manager of managers) {
+        if (manager.id !== creator.id) {
+          await this.notificationsService.createNotification(
+            manager.id,
+            'ticket_created' as any,
+            'New Ticket Created',
+            `A new ticket ${ticket.ticketNumber} has been created by ${creator.displayName}: ${ticket.title}`,
+            {
+              ticketId: ticket.id,
+              ticketNumber: ticket.ticketNumber,
+              createdBy: creator.displayName,
+            }
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Failed to send ticket created notifications:', error);
+    }
+  }
+
+  /**
+   * Send notifications when a ticket is updated
+   */
+  private async sendTicketUpdatedNotifications(
+    ticket: Ticket, 
+    updater: User, 
+    oldStatus?: TicketStatus,
+    oldAssigneeId?: string
+  ): Promise<void> {
+    try {
+      const notifyUsers: User[] = [];
+
+      // Always notify the requester (if not the updater)
+      if (ticket.requester && ticket.requester.id !== updater.id) {
+        notifyUsers.push(ticket.requester);
+      }
+
+      // Notify the assignee (if exists and not the updater)
+      if (ticket.assignee && ticket.assignee.id !== updater.id) {
+        notifyUsers.push(ticket.assignee);
+      }
+
+      // Notify old assignee if assignment changed
+      if (oldAssigneeId && oldAssigneeId !== ticket.assigneeId && oldAssigneeId !== updater.id) {
+        const oldAssignee = await this.userRepository.findOne({ where: { id: oldAssigneeId } });
+        if (oldAssignee) {
+          notifyUsers.push(oldAssignee);
+        }
+      }
+
+      // Send notifications
+      if (notifyUsers.length > 0) {
+        await this.notificationsService.notifyTicketUpdated(ticket, notifyUsers, updater);
+      }
+    } catch (error) {
+      console.error('Failed to send ticket updated notifications:', error);
+    }
+  }
+
+  /**
+   * Send notifications when a comment is added
+   */
+  private async sendCommentNotifications(ticket: Ticket, comment: TicketComment, commenter: User): Promise<void> {
+    try {
+      const notifyUsers: User[] = [];
+
+      // Notify the requester (if not the commenter)
+      if (ticket.requester && ticket.requester.id !== commenter.id) {
+        notifyUsers.push(ticket.requester);
+      }
+
+      // Notify the assignee (if exists and not the commenter)
+      if (ticket.assignee && ticket.assignee.id !== commenter.id) {
+        notifyUsers.push(ticket.assignee);
+      }
+
+      // Get unique users from previous comments (excluding the current commenter)
+      const previousCommenters = await this.commentRepository
+        .createQueryBuilder('comment')
+        .leftJoin('comment.user', 'user')
+        .where('comment.ticketId = :ticketId', { ticketId: ticket.id })
+        .andWhere('comment.userId != :currentUserId', { currentUserId: commenter.id })
+        .andWhere('comment.type = :type', { type: CommentType.COMMENT })
+        .select('user')
+        .distinct(true)
+        .getRawMany();
+
+      for (const prevCommenter of previousCommenters) {
+        const user = await this.userRepository.findOne({ where: { id: prevCommenter.user_id } });
+        if (user && !notifyUsers.some(u => u.id === user.id)) {
+          notifyUsers.push(user);
+        }
+      }
+
+      // Send notifications
+      if (notifyUsers.length > 0) {
+        const commentPreview = comment.content.length > 100 
+          ? comment.content.substring(0, 100) + '...' 
+          : comment.content;
+          
+        await this.notificationsService.notifyTicketCommented(ticket, notifyUsers, commenter, commentPreview);
+      }
+    } catch (error) {
+      console.error('Failed to send comment notifications:', error);
     }
   }
 } 

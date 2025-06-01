@@ -14,33 +14,34 @@ import {
 interface GetTicketsParams {
   page?: number;
   limit?: number;
-  status?: TicketStatus;
-  assigneeId?: string;
+  status?: TicketStatus | 'all';
   departmentId?: string;
+  categoryId?: string;
+  priorityId?: string;
+  assigneeId?: string;
+  requesterId?: string;
   search?: string;
-  tags?: string[];
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export const ticketService = {
   // Get tickets with filters
-  async getTickets(params: GetTicketsParams = {}): Promise<PaginatedResponse<Ticket>> {
-    const searchParams = new URLSearchParams();
+  async getTickets(params: GetTicketsParams = {}): Promise<{ tickets: Ticket[]; total: number; pages: number }> {
+    const queryParams = new URLSearchParams();
     
+    // Add query parameters
     Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        if (Array.isArray(value)) {
-          searchParams.set(key, value.join(','));
-        } else {
-          searchParams.set(key, value.toString());
-        }
+      if (value !== undefined && value !== '' && value !== 'all') {
+        queryParams.append(key, value.toString());
       }
     });
 
-    const response = await api.get(`/tickets?${searchParams}`);
+    const response = await api.get(`/tickets${queryParams.toString() ? `?${queryParams.toString()}` : ''}`);
     return response.data;
   },
 
-  // Get ticket by ID
+  // Get ticket by ID with all relations
   async getTicketById(id: string): Promise<Ticket> {
     const response = await api.get(`/tickets/${id}`);
     return response.data;
@@ -65,7 +66,7 @@ export const ticketService = {
 
   // Assign ticket
   async assignTicket(id: string, data: AssignTicketRequest): Promise<Ticket> {
-    const response = await api.post(`/tickets/${id}/assign`, data);
+    const response = await api.patch(`/tickets/${id}/assign`, data);
     return response.data;
   },
 
@@ -94,5 +95,17 @@ export const ticketService = {
   // Reopen ticket
   async reopenTicket(id: string): Promise<Ticket> {
     return this.updateTicket(id, { status: TicketStatus.OPEN });
+  },
+
+  // Get tickets for current user
+  async getMyTickets(): Promise<Ticket[]> {
+    const response = await api.get('/tickets/my');
+    return response.data;
+  },
+
+  // Get assigned tickets for current user
+  async getAssignedTickets(): Promise<Ticket[]> {
+    const response = await api.get('/tickets/assigned');
+    return response.data;
   },
 }; 

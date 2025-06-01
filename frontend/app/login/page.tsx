@@ -21,8 +21,9 @@ import {
   HelpCircle,
   Sparkles
 } from 'lucide-react';
+import { withAuthOnlyPage } from '@/lib/withAuth';
 
-export default function LoginPage() {
+function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -47,8 +48,7 @@ export default function LoginPage() {
       await signIn(email, password);
       router.push('/dashboard');
     } catch (error: any) {
-      console.error('Login error:', error);
-      setError(error.message || 'Failed to sign in. Please check your credentials.');
+      setError(error.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -218,4 +218,7 @@ export default function LoginPage() {
       </div>
     </div>
   );
-} 
+}
+
+// Use the HOC to redirect authenticated users
+export default withAuthOnlyPage(LoginPage); 
