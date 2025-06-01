@@ -22,7 +22,7 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
     database: configService.get<string>('DB_NAME'),
     entities: [__dirname + '/../entities/*.entity{.ts,.js}'],
     synchronize: configService.get<boolean>('DB_SYNCHRONIZE') && !isProduction,
-    logging: configService.get<boolean>('DB_LOGGING') && !isProduction,
+    logging: false,
     ssl: { rejectUnauthorized: false },
     autoLoadEntities: true,
     retryAttempts: 3,

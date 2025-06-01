@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsEnum } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsEnum, IsUUID, Matches } from 'class-validator';
 import { UserRole } from '../../../entities/user.entity';
 
 /**
@@ -6,6 +6,7 @@ import { UserRole } from '../../../entities/user.entity';
  * 
  * Data Transfer Object for user registration
  * Includes validation rules for secure user creation
+ * Supports profile image upload and department assignment
  */
 export class RegisterDto {
   @IsEmail({}, { message: 'Please provide a valid email address' })
@@ -26,6 +27,25 @@ export class RegisterDto {
   role?: UserRole;
 
   @IsOptional()
-  @IsString({ message: 'Department ID must be a string' })
+  @IsUUID(4, { message: 'Department ID must be a valid UUID' })
   departmentId?: string;
+
+  // For frontend multipart form data
+  @IsOptional()
+  profileImage?: any; // This will be handled as Express.Multer.File in controller
+}
+
+/**
+ * Register with File DTO
+ * 
+ * Used internally when processing file uploads
+ */
+export class RegisterWithFileDto {
+  email: string;
+  password: string;
+  displayName: string;
+  role?: UserRole;
+  departmentId?: string;
+  profileImageBuffer?: Buffer;
+  profileImageExtension?: string;
 } 

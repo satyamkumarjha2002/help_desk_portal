@@ -1,4 +1,4 @@
-import { IsString, MinLength, MaxLength, IsOptional, IsEnum, IsObject } from 'class-validator';
+import { IsString, MinLength, MaxLength, IsOptional, IsEnum, IsObject, IsUrl, ValidateIf } from 'class-validator';
 import { UserRole } from '../../../entities/user.entity';
 
 /**
@@ -25,4 +25,29 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsObject({ message: 'Preferences must be an object' })
   preferences?: Record<string, any>;
+
+  @IsOptional()
+  @ValidateIf((o) => o.profilePictureUrl && o.profilePictureUrl.length > 0)
+  @IsUrl({}, { message: 'Profile picture URL must be a valid URL' })
+  profilePictureUrl?: string;
+
+  @IsOptional()
+  @ValidateIf((o) => o.profilePicturePath && o.profilePicturePath.length > 0)
+  @IsString({ message: 'Profile picture path must be a string' })
+  profilePicturePath?: string;
+}
+
+/**
+ * Change Password DTO
+ * 
+ * Data Transfer Object for changing user password
+ */
+export class ChangePasswordDto {
+  @IsString({ message: 'Current password must be a string' })
+  @MinLength(1, { message: 'Current password is required' })
+  currentPassword: string;
+
+  @IsString({ message: 'New password must be a string' })
+  @MinLength(6, { message: 'New password must be at least 6 characters long' })
+  newPassword: string;
 } 

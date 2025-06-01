@@ -61,11 +61,11 @@ export class Ticket {
   @Column({ name: 'custom_fields', type: 'jsonb', default: {} })
   customFields: Record<string, any>;
 
-  @Column({ name: 'due_date', nullable: true })
-  dueDate: Date;
+  @Column({ name: 'due_date', type: 'timestamp', nullable: true })
+  dueDate: Date | null;
 
-  @Column({ name: 'closed_at', nullable: true })
-  closedAt: Date;
+  @Column({ name: 'closed_at', type: 'timestamp', nullable: true })
+  closedAt: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
@@ -74,22 +74,22 @@ export class Ticket {
   updatedAt: Date;
 
   // Foreign key columns
-  @Column({ name: 'priority_id', nullable: true })
+  @Column({ name: 'priority_id', type: 'uuid', nullable: true })
   priorityId: string;
 
-  @Column({ name: 'category_id', nullable: true })
+  @Column({ name: 'category_id', type: 'uuid', nullable: true })
   categoryId: string;
 
-  @Column({ name: 'department_id', nullable: true })
+  @Column({ name: 'department_id', type: 'uuid', nullable: true })
   departmentId: string;
 
-  @Column({ name: 'requester_id' })
+  @Column({ name: 'requester_id', type: 'uuid' })
   requesterId: string;
 
-  @Column({ name: 'assignee_id', nullable: true })
+  @Column({ name: 'assignee_id', type: 'uuid', nullable: true })
   assigneeId: string;
 
-  @Column({ name: 'created_by_id' })
+  @Column({ name: 'created_by_id', type: 'uuid' })
   createdById: string;
 
   // Relationships

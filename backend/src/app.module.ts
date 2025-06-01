@@ -6,6 +6,8 @@ import { AppService } from './app.service';
 import { getDatabaseConfig } from './config/database.config';
 import { FirebaseConfig } from './config/firebase.config';
 import { AuthModule } from './modules/auth/auth.module';
+import { TicketsModule } from './modules/tickets/tickets.module';
+import { PrioritiesModule } from './modules/priorities/priorities.module';
 
 // Import entities
 import { User } from './entities/user.entity';
@@ -24,7 +26,7 @@ import { Attachment } from './entities/attachment.entity';
  * - Database connection (PostgreSQL with TypeORM)
  * - Firebase integration
  * - Core entities
- * - Feature modules (Auth, Users, Tickets)
+ * - Feature modules (Auth, Tickets, Priorities)
  */
 @Module({
   imports: [
@@ -54,6 +56,8 @@ import { Attachment } from './entities/attachment.entity';
 
     // Feature modules
     AuthModule,
+    TicketsModule,
+    PrioritiesModule,
   ],
   controllers: [AppController],
   providers: [

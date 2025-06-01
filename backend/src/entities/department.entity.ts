@@ -30,7 +30,7 @@ export class Department {
   @ManyToOne(() => Department, department => department.children, { nullable: true })
   parent: Department;
 
-  @Column({ name: 'parent_id', nullable: true })
+  @Column({ name: 'parent_id', type: 'uuid', nullable: true })
   parentId: string;
 
   @OneToMany(() => Department, department => department.parent)

@@ -22,7 +22,7 @@ export class Category {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
-  @Column({ name: 'department_id' })
+  @Column({ name: 'department_id', type: 'uuid' })
   departmentId: string;
 
   // Relationships

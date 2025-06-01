@@ -36,19 +36,19 @@ export class Attachment {
   @ManyToOne(() => Ticket, ticket => ticket.attachments, { onDelete: 'CASCADE', nullable: true })
   ticket: Ticket;
 
-  @Column({ name: 'ticket_id', nullable: true })
+  @Column({ name: 'ticket_id', type: 'uuid', nullable: true })
   ticketId: string;
 
   @ManyToOne(() => TicketComment, comment => comment.attachments, { onDelete: 'CASCADE', nullable: true })
   comment: TicketComment;
 
-  @Column({ name: 'comment_id', nullable: true })
+  @Column({ name: 'comment_id', type: 'uuid', nullable: true })
   commentId: string;
 
   @ManyToOne(() => User, user => user.attachments, { nullable: true })
   uploadedBy: User;
 
-  @Column({ name: 'uploaded_by_id', nullable: true })
+  @Column({ name: 'uploaded_by_id', type: 'uuid', nullable: true })
   uploadedById: string;
 
   /**

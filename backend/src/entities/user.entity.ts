@@ -62,6 +62,20 @@ export class User {
   @Column({ name: 'department_id', type: 'uuid', nullable: true })
   departmentId: string | null;
 
+  /**
+   * Profile picture URL from Firebase Cloud Storage
+   * Public download URL for the user's profile picture
+   */
+  @Column({ name: 'profile_picture_url', type: 'varchar', length: 500, nullable: true })
+  profilePictureUrl: string | null;
+
+  /**
+   * Profile picture path in Firebase Cloud Storage
+   * Used for managing/deleting the file
+   */
+  @Column({ name: 'profile_picture_path', type: 'varchar', length: 500, nullable: true })
+  profilePicturePath: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -1,15 +1,16 @@
-import { Controller, Post, Get, Patch, Body, Param, UseGuards, Request, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, UseGuards, Request, HttpCode, HttpStatus, UseInterceptors, UploadedFile, BadRequestException, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
+import { RegisterDto, RegisterWithFileDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateProfileDto, ChangePasswordDto } from './dto/update-profile.dto';
 import { FirebaseAuthGuard } from '../../common/guards/firebase-auth.guard';
 
 /**
  * Authentication Controller
  * 
  * Handles user authentication endpoints:
- * - User registration
+ * - User registration with profile image upload
  * - Token verification (login)
  * - Profile management
  * - Account management
@@ -23,29 +24,83 @@ export class AuthController {
   /**
    * Register a new user
    * Creates user in both Firebase Auth and local database
+   * Supports optional profile image upload
    * 
    * POST /auth/register
    */
   @Post('register')
-  @HttpCode(HttpStatus.CREATED)
-  async register(@Body() registerDto: RegisterDto) {
-    const user = await this.authService.register(
-      registerDto.email,
-      registerDto.password,
-      registerDto.displayName,
-      registerDto.role
-    );
-
-    // Remove sensitive data from response
-    const { firebaseUid, ...userResponse } = user;
-    
-    return {
-      success: true,
-      message: 'User registered successfully',
-      data: {
-        user: userResponse
+  @UseInterceptors(FileInterceptor('profileImage', {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (req, file, callback) => {
+      if (!file.originalname.match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+        return callback(new BadRequestException('Only image files are allowed'), false);
       }
-    };
+      callback(null, true);
+    },
+  }))
+  @HttpCode(HttpStatus.CREATED)
+  async register(
+    @Body() registerDto: RegisterDto,
+    @UploadedFile() profileImage?: any
+  ) {
+    try {
+      // Prepare registration data
+      const registrationData: RegisterWithFileDto = {
+        email: registerDto.email,
+        password: registerDto.password,
+        displayName: registerDto.displayName,
+        role: registerDto.role,
+        departmentId: registerDto.departmentId,
+      };
+
+      // Handle profile image if uploaded
+      if (profileImage) {
+        // Validate file size and type
+        if (profileImage.size > 5 * 1024 * 1024) {
+          throw new BadRequestException('Profile image must be smaller than 5MB');
+        }
+
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(profileImage.mimetype)) {
+          throw new BadRequestException('Profile image must be a valid image file (JPEG, PNG, GIF, WebP)');
+        }
+
+        // Extract file extension
+        const fileExtension = profileImage.originalname.split('.').pop()?.toLowerCase();
+        if (!fileExtension) {
+          throw new BadRequestException('Profile image must have a valid file extension');
+        }
+
+        registrationData.profileImageBuffer = profileImage.buffer;
+        registrationData.profileImageExtension = fileExtension;
+      }
+
+      // Register user
+      const user = await this.authService.register(
+        registrationData.email,
+        registrationData.password,
+        registrationData.displayName,
+        registrationData.role,
+        registrationData.departmentId,
+        registrationData.profileImageBuffer,
+        registrationData.profileImageExtension
+      );
+
+      // Remove sensitive data from response
+      const { firebaseUid, ...userResponse } = user;
+      
+      return {
+        success: true,
+        message: 'User registered successfully',
+        data: {
+          user: userResponse
+        }
+      };
+    } catch (error) {
+      throw error; // Let NestJS handle the error response
+    }
   }
 
   /**
@@ -213,4 +268,73 @@ export class AuthController {
       timestamp: new Date().toISOString()
     };
   }
+
+  /**
+   * Update user profile with file upload support
+   * Requires authentication
+   * 
+   * PATCH /auth/profile-with-image
+   */
+  @Patch('profile-with-image')
+  @UseGuards(FirebaseAuthGuard)
+  @UseInterceptors(FileInterceptor('profileImage'))
+  async updateProfileWithImage(
+    @Request() req, 
+    @Body() updateProfileDto: UpdateProfileDto,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }), // 5MB limit
+          new FileTypeValidator({ fileType: /(jpg|jpeg|png|gif|webp)$/i }),
+        ],
+        fileIsRequired: false, // Profile image is optional
+      }),
+    ) profileImage?: Express.Multer.File
+  ) {
+    const userId = req.user.id;
+    const updatedUser = await this.authService.updateProfileWithImage(userId, updateProfileDto, profileImage);
+
+    // Remove sensitive data from response
+    const { firebaseUid, ...userResponse } = updatedUser;
+
+    return {
+      success: true,
+      message: 'Profile updated successfully',
+      data: {
+        user: userResponse
+      }
+    };
+  }
+
+  /**
+   * Change user password
+   * Requires authentication
+   * 
+   * PATCH /auth/change-password
+   * 
+   * Note: This endpoint is currently disabled as password changes
+   * are handled entirely through Firebase Auth on the frontend
+   * to prevent session invalidation and automatic logout.
+   */
+  /*
+  @Patch('change-password')
+  @UseGuards(FirebaseAuthGuard)
+  async changePassword(
+    @Request() req, 
+    @Body() changePasswordDto: ChangePasswordDto
+  ) {
+    const firebaseUid = req.user.firebaseUid;
+    
+    await this.authService.changePassword(
+      firebaseUid, 
+      changePasswordDto.currentPassword, 
+      changePasswordDto.newPassword
+    );
+
+    return {
+      success: true,
+      message: 'Password changed successfully'
+    };
+  }
+  */
 } 
