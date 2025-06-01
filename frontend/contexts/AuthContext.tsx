@@ -106,23 +106,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const signIn = async (email: string, password: string) => {
-    setLoading(true);
     try {
+      // Only sign in to Firebase, let onAuthStateChanged handle the rest
       const credential = await signInWithEmailAndPassword(auth, email, password);
-      const token = await credential.user.getIdToken();
-      
-      // Verify token with backend
-      const response = await api.post('/auth/login', { idToken: token });
-      setUser(response.data.user);
+      // Don't manually set user state or loading here - let onAuthStateChanged handle it
     } catch (error) {
       throw error;
-    } finally {
-      setLoading(false);
     }
   };
 
   const signUp = async (email: string, password: string, displayName: string, profilePicture?: File) => {
-    setLoading(true);
     try {
       // Prepare form data for multipart upload
       const formData = new FormData();
@@ -148,11 +141,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         throw new Error('Invalid response from server');
       }
 
-      setUser(response.data.data.user);
-
       // Now sign in to Firebase with the created credentials
-      const credential = await signInWithEmailAndPassword(auth, email, password);
-      setFirebaseUser(credential.user);
+      // Let onAuthStateChanged handle the user state setting
+      await signInWithEmailAndPassword(auth, email, password);
     } catch (error: any) {
       // Provide more specific error messages
       if (error.response?.data?.message) {
@@ -162,8 +153,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } else {
         throw new Error('Registration failed. Please try again.');
       }
-    } finally {
-      setLoading(false);
     }
   };
 

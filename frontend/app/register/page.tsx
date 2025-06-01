@@ -119,7 +119,7 @@ function RegisterPage() {
 
     try {
       await signUp(formData.email, formData.password, formData.displayName, profilePicture || undefined);
-      router.push('/dashboard');
+      // Don't manually redirect - let AuthWrapper handle it
     } catch (error: any) {
       setError(error.message || 'Failed to create account. Please try again.');
     } finally {
