@@ -46,7 +46,7 @@ function LoginPage() {
 
     try {
       await signIn(email, password);
-      router.push('/dashboard');
+      // Don't manually redirect - let AuthWrapper handle it
     } catch (error: any) {
       setError(error.message || 'Login failed');
     } finally {
