@@ -10,6 +10,7 @@ import { Category } from '../../entities/category.entity';
 import { Department } from '../../entities/department.entity';
 import { Attachment } from '../../entities/attachment.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { OpenAIService } from '../faq/services/openai.service';
 
 /**
  * Tickets Module
@@ -31,7 +32,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     NotificationsModule,
   ],
   controllers: [TicketsController],
-  providers: [TicketsService],
+  providers: [TicketsService, OpenAIService],
   exports: [TicketsService],
 })
 export class TicketsModule {} 
