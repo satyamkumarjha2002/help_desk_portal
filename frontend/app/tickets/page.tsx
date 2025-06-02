@@ -25,12 +25,15 @@ import {
   UserPlus,
   CheckSquare,
   Square,
-  CheckCircle
+  CheckCircle,
+  Users
 } from 'lucide-react';
-import { Ticket, TicketStatus, Department } from '@/types';
+import { Ticket, TicketStatus, Department, UserRole } from '@/types';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { withProtectedPage } from '@/lib/withAuth';
+import { TicketAssignmentModal } from '@/components/ticket-assignment-modal';
+import { canUserAssignTickets } from '@/lib/ticketPermissions';
 
 function TicketsPage() {
   const { user } = useAuth();
@@ -54,6 +57,11 @@ function TicketsPage() {
   const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  
+  // Assignment modal state
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [ticketToAssign, setTicketToAssign] = useState<Ticket | null>(null);
+  const [assignmentMode, setAssignmentMode] = useState<'single' | 'bulk'>('single');
 
   const pageSize = 10;
 
@@ -182,6 +190,46 @@ function TicketsPage() {
       setError('Failed to assign tickets. Please try again.');
     } finally {
       setBulkLoading(false);
+    }
+  };
+
+  // Handle assignment modal opening
+  const handleOpenAssignModal = (ticket?: Ticket, mode: 'single' | 'bulk' = 'single') => {
+    if (!canUserAssignTickets(user)) {
+      setError('You do not have permission to assign tickets');
+      return;
+    }
+
+    setTicketToAssign(ticket || null);
+    setAssignmentMode(mode);
+    setIsAssignModalOpen(true);
+  };
+
+  // Handle ticket assignment from modal
+  const handleAssignTicket = async (assigneeId: string, assigneeName: string) => {
+    try {
+      if (assignmentMode === 'bulk' && selectedTickets.size > 0) {
+        // Bulk assignment
+        const assignmentPromises = Array.from(selectedTickets).map(ticketId =>
+          ticketService.assignTicket(ticketId, { assigneeId })
+        );
+
+        await Promise.all(assignmentPromises);
+        setSuccessMessage(`Successfully assigned ${selectedTickets.size} ticket(s) to ${assigneeName}!`);
+        setSelectedTickets(new Set());
+      } else if (assignmentMode === 'single' && ticketToAssign) {
+        // Single ticket assignment
+        await ticketService.assignTicket(ticketToAssign.id, { assigneeId });
+        setSuccessMessage(`Successfully assigned ticket #${ticketToAssign.ticketNumber} to ${assigneeName}!`);
+      }
+
+      await fetchTickets(); // Refresh the ticket list
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Failed to assign ticket:', error);
+      throw new Error('Failed to assign ticket. Please try again.');
     }
   };
 
@@ -377,7 +425,7 @@ function TicketsPage() {
                   )}
                 </div>
 
-                {selectedTickets.size > 0 && (
+                {(canUserAssignTickets(user)) && (
                   <Button
                     onClick={handleAssignToMe}
                     disabled={bulkLoading}
@@ -389,6 +437,19 @@ function TicketsPage() {
                       <UserPlus className="h-4 w-4" />
                     )}
                     Assign to Me ({selectedTickets.size})
+                  </Button>
+                )}
+
+                {/* Assign to Others button for elevated users */}
+                {canUserAssignTickets(user) && [UserRole.MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(user.role) && (
+                  <Button
+                    variant="outline"
+                    onClick={() => handleOpenAssignModal(undefined, 'bulk')}
+                    disabled={bulkLoading}
+                    className="flex items-center gap-2"
+                  >
+                    <Users className="h-4 w-4" />
+                    Assign to Others ({selectedTickets.size})
                   </Button>
                 )}
               </div>
@@ -530,21 +591,40 @@ function TicketsPage() {
 
                       {/* Quick assign button for individual tickets when not in bulk mode */}
                       {isUnassigned && assigneeFilter !== 'unassigned' && (
-                        <div className="flex-shrink-0">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSelectTicket(ticket.id, true);
-                              setTimeout(() => handleAssignToMe(), 100);
-                            }}
-                            disabled={bulkLoading}
-                            className="flex items-center gap-1"
-                          >
-                            <UserPlus className="h-3 w-3" />
-                            Assign to Me
-                          </Button>
+                        <div className="flex-shrink-0 flex gap-2">
+                          {canUserAssignTickets(user) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectTicket(ticket.id, true);
+                                setTimeout(() => handleAssignToMe(), 100);
+                              }}
+                              disabled={bulkLoading}
+                              className="flex items-center gap-1"
+                            >
+                              <UserPlus className="h-3 w-3" />
+                              Assign to Me
+                            </Button>
+                          )}
+
+                          {/* Assign to Others button for elevated users */}
+                          {canUserAssignTickets(user) && [UserRole.MANAGER, UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(user.role) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenAssignModal(ticket, 'single');
+                              }}
+                              disabled={bulkLoading}
+                              className="flex items-center gap-1"
+                            >
+                              <Users className="h-3 w-3" />
+                              Others
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -582,6 +662,15 @@ function TicketsPage() {
           </div>
         )}
       </main>
+
+      {/* Ticket Assignment Modal */}
+      <TicketAssignmentModal
+        isOpen={isAssignModalOpen}
+        onClose={() => setIsAssignModalOpen(false)}
+        onAssign={handleAssignTicket}
+        ticket={ticketToAssign}
+        ticketIds={assignmentMode === 'bulk' ? Array.from(selectedTickets) : undefined}
+      />
     </div>
   );
 }

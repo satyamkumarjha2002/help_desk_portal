@@ -57,13 +57,11 @@ export class AuthService {
     try {
       this.validateRegistrationInput(email, password, displayName);
 
-      // Auto-assign role based on department selection
-      let userRole = role;
-      if (departmentId && role === UserRole.END_USER) {
-        // If user selects a department, give them MANAGER role for that department
-        userRole = UserRole.MANAGER;
-        this.logger.log(`Auto-assigning MANAGER role for department: ${departmentId}`);
-      }
+      // Use the provided role without auto-assignment
+      // The frontend will handle appropriate role selection based on department
+      let userRole = role || UserRole.END_USER;
+      
+      this.logger.log(`Registering user with role: ${userRole}${departmentId ? ` in department: ${departmentId}` : ' (no department)'}`);
 
       // Check if user already exists
       const existingUser = await this.userRepository.findOne({

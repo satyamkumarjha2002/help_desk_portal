@@ -1,133 +1,84 @@
+'use client';
+
 import React from 'react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface ConfirmationDialogProps {
-  children: React.ReactNode;
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
   title: string;
   description: string;
   confirmText?: string;
   cancelText?: string;
-  onConfirm: () => void;
-  variant?: 'default' | 'destructive';
-  disabled?: boolean;
+  confirmVariant?: 'default' | 'destructive' | 'outline' | 'secondary' | 'ghost' | 'link';
+  isLoading?: boolean;
+  icon?: React.ReactNode;
 }
 
 export function ConfirmationDialog({
-  children,
+  isOpen,
+  onClose,
+  onConfirm,
   title,
   description,
   confirmText = 'Confirm',
   cancelText = 'Cancel',
-  onConfirm,
-  variant = 'default',
-  disabled = false,
+  confirmVariant = 'default',
+  isLoading = false,
+  icon
 }: ConfirmationDialogProps) {
+  const handleConfirm = () => {
+    if (!isLoading) {
+      onConfirm();
+    }
+  };
+
+  const handleClose = () => {
+    if (!isLoading) {
+      onClose();
+    }
+  };
+
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild disabled={disabled}>
-        {children}
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {icon || (confirmVariant === 'destructive' && <AlertTriangle className="h-5 w-5 text-red-600" />)}
+            {title}
+          </DialogTitle>
+          <DialogDescription className="text-left">
             {description}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{cancelText}</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={onConfirm}
-            className={variant === 'destructive' ? 'bg-red-600 hover:bg-red-700 text-white' : ''}
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={handleClose}
+            disabled={isLoading}
           >
-            {confirmText}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+            {cancelText}
+          </Button>
+          <Button
+            variant={confirmVariant}
+            onClick={handleConfirm}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Processing...
+              </>
+            ) : (
+              confirmText
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
-}
-
-// Hook for programmatic confirmation dialogs
-export function useConfirmation() {
-  const [dialogState, setDialogState] = React.useState<{
-    isOpen: boolean;
-    title: string;
-    description: string;
-    confirmText: string;
-    cancelText: string;
-    variant: 'default' | 'destructive';
-    onConfirm: () => void;
-  }>({
-    isOpen: false,
-    title: '',
-    description: '',
-    confirmText: 'Confirm',
-    cancelText: 'Cancel',
-    variant: 'default',
-    onConfirm: () => {},
-  });
-
-  const confirm = React.useCallback((options: {
-    title: string;
-    description: string;
-    confirmText?: string;
-    cancelText?: string;
-    variant?: 'default' | 'destructive';
-  }) => {
-    return new Promise<boolean>((resolve) => {
-      setDialogState({
-        isOpen: true,
-        title: options.title,
-        description: options.description,
-        confirmText: options.confirmText || 'Confirm',
-        cancelText: options.cancelText || 'Cancel',
-        variant: options.variant || 'default',
-        onConfirm: () => {
-          setDialogState(prev => ({ ...prev, isOpen: false }));
-          resolve(true);
-        },
-      });
-    });
-  }, []);
-
-  const ConfirmationDialogComponent = React.useCallback(() => (
-    <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => 
-      setDialogState(prev => ({ ...prev, isOpen: open }))
-    }>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{dialogState.title}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {dialogState.description}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => 
-            setDialogState(prev => ({ ...prev, isOpen: false }))
-          }>
-            {dialogState.cancelText}
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={dialogState.onConfirm}
-            className={dialogState.variant === 'destructive' ? 'bg-red-600 hover:bg-red-700' : ''}
-          >
-            {dialogState.confirmText}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  ), [dialogState]);
-
-  return { confirm, ConfirmationDialog: ConfirmationDialogComponent };
 } 

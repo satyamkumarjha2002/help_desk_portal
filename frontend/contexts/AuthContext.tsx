@@ -23,7 +23,7 @@ interface AuthContextType {
   firebaseUser: FirebaseUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, displayName: string, profilePicture?: File, departmentId?: string) => Promise<void>;
+  signUp: (email: string, password: string, displayName: string, profilePicture?: File, departmentId?: string, role?: UserRole) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updateUserProfile: (data: Partial<User>) => Promise<User>;
@@ -115,15 +115,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const signUp = async (email: string, password: string, displayName: string, profilePicture?: File, departmentId?: string) => {
+  const signUp = async (email: string, password: string, displayName: string, profilePicture?: File, departmentId?: string, role?: UserRole) => {
     try {
       // Prepare form data for multipart upload
       const formData = new FormData();
       formData.append('email', email);
       formData.append('password', password);
       formData.append('displayName', displayName);
-      formData.append('role', UserRole.END_USER);
-      formData.append('departmentId', departmentId || '');
+      formData.append('role', role || UserRole.END_USER);
+      
+      // Only append departmentId if it's a valid non-empty string
+      if (departmentId && departmentId !== 'none' && departmentId.trim() !== '') {
+        formData.append('departmentId', departmentId);
+      }
 
       // Add profile picture if provided
       if (profilePicture) {

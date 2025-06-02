@@ -85,6 +85,9 @@ function TicketDetailsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState<UpdateTicketRequest>({});
 
+  // Add this state near the top with other state declarations
+  const [deleteAttachmentId, setDeleteAttachmentId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!user || !ticketId) return;
     fetchTicketDetails();
@@ -843,29 +846,14 @@ function TicketDetailsPage() {
                           {/* Optional: Delete button for authorized users */}
                           {(user?.id === attachment.uploadedBy?.id || 
                             [UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(user?.role)) && (
-                            <ConfirmationDialog
-                              title="Delete Attachment"
-                              description="Are you sure you want to delete this attachment? This action cannot be undone."
-                              confirmText="Delete"
-                              cancelText="Cancel"
-                              variant="destructive"
-                              onConfirm={async () => {
-                                try {
-                                  await attachmentService.deleteAttachment(attachment.id);
-                                  await loadTicketAttachments(ticket.id);
-                                } catch (error) {
-                                  setError('Failed to delete attachment');
-                                }
-                              }}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setDeleteAttachmentId(attachment.id)}
+                              className="text-red-500 hover:text-red-700"
                             >
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-500 hover:text-red-700"
-                              >
-                                Delete
-                              </Button>
-                            </ConfirmationDialog>
+                              Delete
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -881,6 +869,27 @@ function TicketDetailsPage() {
             </Card>
           </div>
         </div>
+
+        {/* Add this dialog near the end of the component, after the main content */}
+        <ConfirmationDialog
+          isOpen={deleteAttachmentId !== null}
+          onClose={() => setDeleteAttachmentId(null)}
+          onConfirm={async () => {
+            if (deleteAttachmentId) {
+              try {
+                await attachmentService.deleteAttachment(deleteAttachmentId);
+                await loadTicketAttachments(ticket.id);
+                setDeleteAttachmentId(null);
+              } catch (error) {
+                setError('Failed to delete attachment');
+              }
+            }
+          }}
+          title="Delete Attachment"
+          description="Are you sure you want to delete this attachment? This action cannot be undone."
+          confirmText="Delete"
+          confirmVariant="destructive"
+        />
       </main>
     </div>
   );

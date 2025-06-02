@@ -40,7 +40,8 @@ import { adminService } from '@/services/adminService';
 import { departmentService } from '@/services/departmentService';
 import { ticketService } from '@/services/ticketService';
 import { TicketStatus, UserRole, Department, Ticket as TicketType } from '@/types';
-import { canUserEditTicket } from '@/lib/ticketPermissions';
+import { canUserEditTicket, canUserAssignTickets } from '@/lib/ticketPermissions';
+import { TicketAssignmentModal } from '@/components/ticket-assignment-modal';
 import Link from 'next/link';
 import {
   DropdownMenu,
@@ -75,6 +76,11 @@ export default function AdminTicketsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalTickets, setTotalTickets] = useState(0);
+
+  // Assignment modal state
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [ticketToAssign, setTicketToAssign] = useState<TicketType | null>(null);
+  const [assignmentMode, setAssignmentMode] = useState<'single' | 'bulk'>('single');
 
   const [filters, setFilters] = useState<Filters>({
     status: 'all',
@@ -201,6 +207,37 @@ export default function AdminTicketsPage() {
       setError(err instanceof Error ? err.message : 'Failed to update tickets');
     } finally {
       setBulkLoading(false);
+    }
+  };
+
+  // Handle assignment modal opening
+  const handleOpenAssignModal = (ticket?: TicketType, mode: 'single' | 'bulk' = 'single') => {
+    if (!canUserAssignTickets(user)) {
+      setError('You do not have permission to assign tickets');
+      return;
+    }
+
+    setTicketToAssign(ticket || null);
+    setAssignmentMode(mode);
+    setIsAssignModalOpen(true);
+  };
+
+  // Handle ticket assignment from modal
+  const handleAssignTicket = async (assigneeId: string, assigneeName: string) => {
+    try {
+      if (assignmentMode === 'bulk' && selectedTickets.size > 0) {
+        // Bulk assignment
+        await adminService.bulkAssignTickets(Array.from(selectedTickets), assigneeId);
+        setSelectedTickets(new Set());
+      } else if (assignmentMode === 'single' && ticketToAssign) {
+        // Single ticket assignment - use ticket service directly
+        await ticketService.assignTicket(ticketToAssign.id, { assigneeId });
+      }
+
+      await loadTickets(); // Refresh the ticket list
+    } catch (error) {
+      console.error('Failed to assign ticket:', error);
+      throw new Error('Failed to assign ticket. Please try again.');
     }
   };
 
@@ -400,6 +437,10 @@ export default function AdminTicketsPage() {
                         <User className="h-4 w-4 mr-2" />
                         Myself
                       </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleOpenAssignModal(undefined, 'bulk')}>
+                        <Users className="h-4 w-4 mr-2" />
+                        Others...
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleBulkAssign('')}>
                         <User className="h-4 w-4 mr-2" />
                         Unassign
@@ -550,6 +591,13 @@ export default function AdminTicketsPage() {
                           <UserPlus className="h-4 w-4 mr-2" />
                           Assign to me
                         </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => handleOpenAssignModal(ticket, 'single')}
+                          className="text-green-600 dark:text-green-400"
+                        >
+                          <Users className="h-4 w-4 mr-2" />
+                          Assign to others
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -589,6 +637,15 @@ export default function AdminTicketsPage() {
           </div>
         )}
       </div>
+
+      {/* Ticket Assignment Modal */}
+      <TicketAssignmentModal
+        isOpen={isAssignModalOpen}
+        onClose={() => setIsAssignModalOpen(false)}
+        onAssign={handleAssignTicket}
+        ticket={ticketToAssign}
+        ticketIds={assignmentMode === 'bulk' ? Array.from(selectedTickets) : undefined}
+      />
     </div>
   );
 } 
