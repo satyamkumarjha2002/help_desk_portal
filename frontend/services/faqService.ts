@@ -74,6 +74,27 @@ export interface FAQAnalytics {
   popularDocuments: Document[];
 }
 
+export interface AnalyzeTicketContentDto {
+  title: string;
+  description: string;
+  tags?: string[];
+  departmentId?: string;
+  categoryId?: string;
+}
+
+export interface FaqSuggestionResult {
+  shouldRedirectToFaq: boolean;
+  confidence: number;
+  suggestedQuestion: string;
+  reasoning: string;
+  relevantDocuments: Array<{
+    id: string;
+    title: string;
+    summary?: string;
+    relevanceScore: number;
+  }>;
+}
+
 /**
  * FAQ Service
  * 
@@ -195,6 +216,14 @@ export const faqService = {
     additionalInfo?: string;
   }): Promise<any> {
     const response = await api.post('/faq/tickets', data);
+    return response.data;
+  },
+
+  /**
+   * Analyze ticket content to suggest FAQ redirection
+   */
+  async analyzeTicketContent(ticketData: AnalyzeTicketContentDto): Promise<FaqSuggestionResult> {
+    const response = await api.post('/faq/analyze-ticket', ticketData);
     return response.data;
   },
 }; 

@@ -8,6 +8,7 @@ import { departmentService } from '@/services/departmentService';
 import { categoryService } from '@/services/categoryService';
 import { priorityService } from '@/services/priorityService';
 import { attachmentService } from '@/services/attachmentService';
+import { faqService, FaqSuggestionResult } from '@/services/faqService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AppHeader } from '@/components/app-header';
 import { Badge } from '@/components/ui/badge';
+import { FaqSuggestionModal } from '@/components/faq-suggestion-modal';
 import { 
   ArrowLeft, 
   Upload, 
@@ -24,7 +26,8 @@ import {
   Loader2, 
   AlertCircle,
   FileIcon,
-  ImageIcon
+  ImageIcon,
+  Lightbulb
 } from 'lucide-react';
 import { Department, Category, Priority, CreateTicketRequest } from '@/types';
 import Link from 'next/link';
@@ -52,6 +55,12 @@ function CreateTicketPage() {
   const [loading, setLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState('');
+  const [analyzingForFaq, setAnalyzingForFaq] = useState(false);
+  
+  // FAQ suggestion state
+  const [faqSuggestion, setFaqSuggestion] = useState<FaqSuggestionResult | null>(null);
+  const [showFaqModal, setShowFaqModal] = useState(false);
+  const [skipFaqAnalysis, setSkipFaqAnalysis] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -178,6 +187,38 @@ function CreateTicketPage() {
       return;
     }
 
+    // If we haven't skipped FAQ analysis and content is substantial, check for FAQ suggestions first
+    if (!skipFaqAnalysis && formData.title.length >= 10 && formData.description.length >= 20) {
+      setAnalyzingForFaq(true);
+      
+      try {
+        const suggestion = await faqService.analyzeTicketContent({
+          title: formData.title,
+          description: formData.description,
+          tags: formData.tags,
+          departmentId: formData.departmentId || undefined,
+          categoryId: formData.categoryId || undefined,
+        });
+
+        if (suggestion.shouldRedirectToFaq && suggestion.confidence >= 0.6) {
+          setFaqSuggestion(suggestion);
+          setShowFaqModal(true);
+          setAnalyzingForFaq(false);
+          return; // Stop here and show the modal
+        }
+      } catch (error) {
+        // If FAQ analysis fails, continue with ticket creation
+        console.warn('FAQ analysis failed:', error);
+      }
+      
+      setAnalyzingForFaq(false);
+    }
+
+    // Proceed with ticket creation
+    await createTicket();
+  };
+
+  const createTicket = async () => {
     setLoading(true);
     setError('');
 
@@ -219,6 +260,20 @@ function CreateTicketPage() {
       setError(error.message || 'Failed to create ticket');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleProceedWithTicket = () => {
+    setShowFaqModal(false);
+    setSkipFaqAnalysis(true); // Skip analysis on next submit
+    createTicket();
+  };
+
+  const handleRedirectToFaq = () => {
+    if (faqSuggestion) {
+      // Encode the suggested question and redirect to FAQ page
+      const encodedQuestion = encodeURIComponent(faqSuggestion.suggestedQuestion);
+      router.push(`/faq?question=${encodedQuestion}`);
     }
   };
 
@@ -535,8 +590,13 @@ function CreateTicketPage() {
             <Button type="button" variant="outline" asChild>
               <Link href="/tickets">Cancel</Link>
             </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? (
+            <Button type="submit" disabled={loading || analyzingForFaq}>
+              {analyzingForFaq ? (
+                <>
+                  <Lightbulb className="h-4 w-4 mr-2 animate-pulse" />
+                  Checking FAQ...
+                </>
+              ) : loading ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   Creating...
@@ -547,6 +607,18 @@ function CreateTicketPage() {
             </Button>
           </div>
         </form>
+
+        {/* FAQ Suggestion Modal */}
+        {faqSuggestion && (
+          <FaqSuggestionModal
+            isOpen={showFaqModal}
+            onClose={() => setShowFaqModal(false)}
+            suggestion={faqSuggestion}
+            confidence={faqSuggestion.confidence}
+            onProceedWithTicket={handleProceedWithTicket}
+            onRedirectToFaq={handleRedirectToFaq}
+          />
+        )}
       </main>
     </div>
   );

@@ -27,6 +27,7 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { AskQuestionDto } from './dto/ask-question.dto';
 import { ProvideFeedbackDto } from './dto/feedback.dto';
 import { CreateTicketFromFaqDto } from './dto/create-ticket-from-faq.dto';
+import { AnalyzeTicketContentDto } from './dto/analyze-ticket-content.dto';
 import { Document } from './entities/document.entity';
 import { FaqInteraction } from './entities/faq-interaction.entity';
 import { TicketsService } from '../tickets/tickets.service';
@@ -194,5 +195,15 @@ export class FaqController {
     }
     
     return await this.faqService.getTicketsConvertedToFaq();
+  }
+
+  @Post('analyze-ticket')
+  async analyzeTicketContent(
+    @Body() analyzeDto: AnalyzeTicketContentDto,
+  ): Promise<any> {
+    return await this.faqService.analyzeTicketContentForFaqRedirection(
+      analyzeDto.title,
+      analyzeDto.description,
+    );
   }
 } 

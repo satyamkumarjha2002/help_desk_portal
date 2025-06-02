@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like, ILike } from 'typeorm';
+import { Repository, Like, ILike, In } from 'typeorm';
 import { Document } from '../entities/document.entity';
 import { FaqInteraction, FeedbackType } from '../entities/faq-interaction.entity';
 import { User } from '../../../entities/user.entity';
@@ -447,6 +447,7 @@ I recommend:
     return interaction;
   }
 
+  // Ticket to FAQ Conversion
   /**
    * Analyze a resolved ticket and potentially create an FAQ document
    */
@@ -552,5 +553,79 @@ I recommend:
         ticketNumber: doc.tags.find(tag => tag.startsWith('HD-')),
         createdAt: doc.createdAt,
       }));
+  }
+
+  /**
+   * Analyze ticket content to suggest FAQ redirection
+   */
+  async analyzeTicketContentForFaqRedirection(
+    ticketTitle: string,
+    ticketDescription: string,
+  ): Promise<any> {
+    try {
+      // Get relevant FAQ documents (limit to prevent overwhelming the AI)
+      const documents = await this.documentRepository.find({
+        where: { isActive: true },
+        order: { usageCount: 'DESC', createdAt: 'DESC' },
+        take: 20, // Limit to top 20 most relevant/recent documents
+      });
+
+      if (documents.length === 0) {
+        return {
+          shouldRedirectToFaq: false,
+          confidence: 0,
+          suggestedQuestion: '',
+          reasoning: 'No FAQ documents available',
+          relevantDocuments: [],
+        };
+      }
+
+      // Prepare data for AI analysis
+      const analysisRequest = {
+        ticketTitle,
+        ticketDescription,
+        availableDocuments: documents.map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          content: doc.content,
+          summary: doc.summary,
+          tags: doc.tags,
+        })),
+      };
+
+      // Use AI to analyze and suggest FAQ redirection
+      const analysis = await this.openAIService.analyzeTicketForFaqRedirection(analysisRequest);
+
+      // Get full document details for relevant documents
+      const relevantDocuments = await this.documentRepository.find({
+        where: { id: In(analysis.relevantDocumentIds) },
+        select: ['id', 'title', 'summary'],
+      });
+
+      // Calculate relevance scores (simple approach based on document usage)
+      const documentsWithScores = relevantDocuments.map(doc => ({
+        id: doc.id,
+        title: doc.title,
+        summary: doc.summary,
+        relevanceScore: Math.min(doc.usageCount * 0.1, 1.0), // Normalize usage count to 0-1
+      }));
+
+      return {
+        shouldRedirectToFaq: analysis.shouldRedirectToFaq,
+        confidence: analysis.confidence,
+        suggestedQuestion: analysis.suggestedQuestion,
+        reasoning: analysis.reasoning,
+        relevantDocuments: documentsWithScores,
+      };
+    } catch (error) {
+      this.logger.error('Failed to analyze ticket content for FAQ redirection:', error);
+      return {
+        shouldRedirectToFaq: false,
+        confidence: 0,
+        suggestedQuestion: '',
+        reasoning: `Analysis failed: ${error.message}`,
+        relevantDocuments: [],
+      };
+    }
   }
 } 
