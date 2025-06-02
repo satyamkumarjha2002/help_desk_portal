@@ -16,6 +16,7 @@ import { CommentsModule } from './modules/comments/comments.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { UsersModule } from './modules/users/users.module';
+import { FaqModule } from './modules/faq/faq.module';
 
 // Import entities
 import { User } from './entities/user.entity';
@@ -26,6 +27,8 @@ import { Ticket } from './entities/ticket.entity';
 import { TicketComment } from './entities/ticket-comment.entity';
 import { Attachment } from './entities/attachment.entity';
 import { Notification } from './entities/notification.entity';
+import { Document } from './modules/faq/entities/document.entity';
+import { FaqInteraction } from './modules/faq/entities/faq-interaction.entity';
 
 /**
  * Main Application Module
@@ -62,6 +65,8 @@ import { Notification } from './entities/notification.entity';
       TicketComment,
       Attachment,
       Notification,
+      Document,
+      FaqInteraction,
     ]),
 
     // Global auth module for guards
@@ -78,6 +83,7 @@ import { Notification } from './entities/notification.entity';
     NotificationsModule,
     AdminModule,
     UsersModule,
+    FaqModule,
   ],
   controllers: [AppController],
   providers: [
