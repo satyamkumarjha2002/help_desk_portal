@@ -27,7 +27,8 @@ import {
   Users,
   BarChart3,
   Shield,
-  Building
+  Building,
+  MessageSquare
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -91,6 +92,12 @@ export function AppHeader() {
       show: true 
     },
     { 
+      href: '/faq', 
+      label: 'AI Assistant', 
+      icon: MessageSquare,
+      show: true 
+    },
+    { 
       href: '/tickets/new', 
       label: 'New Ticket', 
       icon: Plus,
@@ -139,6 +146,12 @@ export function AppHeader() {
       href: '/admin/departments',
       label: 'All Departments',
       icon: Building,
+      show: user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN
+    },
+    {
+      href: '/admin/faq',
+      label: 'FAQ Management',
+      icon: MessageSquare,
       show: user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN
     },
     {
