@@ -102,6 +102,26 @@ interface TicketToFaqResult {
   };
 }
 
+interface TicketToFaqAnalysisRequest {
+  ticketTitle: string;
+  ticketDescription: string;
+  availableDocuments: Array<{
+    id: string;
+    title: string;
+    content: string;
+    summary?: string;
+    tags: string[];
+  }>;
+}
+
+interface TicketToFaqAnalysisResult {
+  shouldRedirectToFaq: boolean;
+  confidence: number; // 0-1 scale
+  suggestedQuestion: string;
+  reasoning: string;
+  relevantDocumentIds: string[];
+}
+
 @Injectable()
 export class OpenAIService {
   private readonly logger = new Logger(OpenAIService.name);
@@ -690,5 +710,161 @@ If not suitable, omit the "suggestedFaqDocument" field.`;
         tags: ['auto-generated', 'needs-review']
       } : undefined
     };
+  }
+
+  /**
+   * Analyze ticket content to determine if it can be resolved through FAQ
+   */
+  async analyzeTicketForFaqRedirection(request: TicketToFaqAnalysisRequest): Promise<TicketToFaqAnalysisResult> {
+    if (!this.apiKey) {
+      return this.getFallbackFaqAnalysis(request);
+    }
+
+    try {
+      const systemPrompt = this.buildTicketFaqAnalysisSystemPrompt();
+      const userPrompt = this.buildTicketFaqAnalysisUserPrompt(request);
+
+      const messages: ChatMessage[] = [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
+        {
+          role: 'user',
+          content: userPrompt,
+        },
+      ];
+
+      const response = await this.callOpenAI(messages, 1500, 0.3);
+      return this.parseTicketFaqAnalysisResponse(response, request);
+    } catch (error) {
+      this.logger.error('Failed to analyze ticket for FAQ redirection:', error);
+      return this.getFallbackFaqAnalysis(request);
+    }
+  }
+
+  private buildTicketFaqAnalysisSystemPrompt(): string {
+    return `You are an AI assistant that analyzes support ticket content to determine if the user's issue can be resolved through existing FAQ documentation instead of creating a new ticket.
+
+Your task is to:
+1. Analyze the user's ticket title and description
+2. Review available FAQ documents to see if they contain solutions
+3. Determine if the issue can be resolved through self-service FAQ
+4. Generate an appropriate FAQ question if redirection is recommended
+
+REDIRECTION CRITERIA:
+✅ REDIRECT TO FAQ when:
+- The issue is covered in existing documentation
+- It's a common question with a documented solution  
+- It's a how-to question that's already answered
+- The user needs information that's available in FAQ
+- It's a policy or procedure question with existing documentation
+
+❌ DON'T REDIRECT when:
+- The issue is highly specific to the user's situation
+- It requires personalized troubleshooting
+- It involves account-specific problems
+- It's a bug report or system issue
+- It requires administrative action
+- No relevant documentation exists
+
+QUESTION GENERATION:
+- Create clear, natural questions that users would actually ask
+- Make them specific enough to find the right information
+- Use user-friendly language, not technical jargon
+- Focus on the core problem the user is trying to solve
+
+RESPOND with JSON in this exact format:
+{
+  "shouldRedirectToFaq": true/false,
+  "confidence": 0.85,
+  "suggestedQuestion": "How do I reset my password?",
+  "reasoning": "Brief explanation of the decision",
+  "relevantDocumentIds": ["doc1", "doc2"]
+}
+
+Be conservative - only redirect if you're confident the FAQ can resolve the issue.`;
+  }
+
+  private buildTicketFaqAnalysisUserPrompt(request: TicketToFaqAnalysisRequest): string {
+    const sections = [
+      `TICKET TITLE: ${request.ticketTitle}`,
+      `TICKET DESCRIPTION: ${request.ticketDescription}`,
+      '',
+      '--- AVAILABLE FAQ DOCUMENTS ---',
+    ];
+
+    request.availableDocuments.forEach((doc, index) => {
+      sections.push(`${index + 1}. ID: ${doc.id}`);
+      sections.push(`   Title: ${doc.title}`);
+      if (doc.summary) {
+        sections.push(`   Summary: ${doc.summary}`);
+      }
+      sections.push(`   Tags: ${doc.tags.join(', ')}`);
+      sections.push(`   Content Preview: ${doc.content.substring(0, 200)}...`);
+      sections.push('');
+    });
+
+    return sections.join('\n');
+  }
+
+  private parseTicketFaqAnalysisResponse(response: string, request: TicketToFaqAnalysisRequest): TicketToFaqAnalysisResult {
+    try {
+      const parsed = JSON.parse(response.trim());
+      
+      // Validate document IDs
+      const validDocIds = request.availableDocuments.map(d => d.id);
+      const filteredDocIds = Array.isArray(parsed.relevantDocumentIds) 
+        ? parsed.relevantDocumentIds.filter(id => validDocIds.includes(id))
+        : [];
+
+      return {
+        shouldRedirectToFaq: Boolean(parsed.shouldRedirectToFaq),
+        confidence: Math.min(Math.max(parsed.confidence || 0, 0), 1),
+        suggestedQuestion: parsed.suggestedQuestion || this.generateFallbackQuestion(request),
+        reasoning: parsed.reasoning || 'No reasoning provided',
+        relevantDocumentIds: filteredDocIds
+      };
+    } catch (error) {
+      this.logger.error('Failed to parse ticket FAQ analysis response:', error);
+      return this.getFallbackFaqAnalysis(request);
+    }
+  }
+
+  private getFallbackFaqAnalysis(request: TicketToFaqAnalysisRequest): TicketToFaqAnalysisResult {
+    // Simple heuristic: if we have documents and the title/description contains common question words
+    const questionWords = ['how', 'what', 'where', 'when', 'why', 'can i', 'unable to', 'cannot'];
+    const hasQuestionWords = questionWords.some(word => 
+      request.ticketTitle.toLowerCase().includes(word) || 
+      request.ticketDescription.toLowerCase().includes(word)
+    );
+
+    const hasDocuments = request.availableDocuments.length > 0;
+    const shouldRedirect = hasQuestionWords && hasDocuments;
+
+    return {
+      shouldRedirectToFaq: shouldRedirect,
+      confidence: shouldRedirect ? 0.6 : 0.2,
+      suggestedQuestion: this.generateFallbackQuestion(request),
+      reasoning: 'Fallback analysis due to AI service unavailability',
+      relevantDocumentIds: shouldRedirect ? request.availableDocuments.slice(0, 2).map(d => d.id) : []
+    };
+  }
+
+  private generateFallbackQuestion(request: TicketToFaqAnalysisRequest): string {
+    // Extract key words from title and create a question
+    const title = request.ticketTitle.toLowerCase();
+    
+    if (title.includes('password')) {
+      return 'How do I reset my password?';
+    } else if (title.includes('login') || title.includes('sign in')) {
+      return 'How do I log into my account?';
+    } else if (title.includes('access') || title.includes('permission')) {
+      return 'How do I get access to the system?';
+    } else if (title.includes('error') || title.includes('problem')) {
+      return 'How do I troubleshoot common errors?';
+    } else {
+      return `How do I ${request.ticketTitle.toLowerCase()}?`;
+    }
   }
 } 

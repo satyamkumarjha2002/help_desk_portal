@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,8 @@ import {
   AlertCircle,
   Loader2,
   TicketIcon,
-  Plus
+  Plus,
+  ArrowLeft
 } from 'lucide-react';
 import { faqService, FAQResponse, Document } from '@/services/faqService';
 import { withProtectedPage } from '@/lib/withAuth';
@@ -48,12 +50,14 @@ interface ChatMessage {
 
 function FAQPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [documents, setDocuments] = useState<Document[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
+  const hasAutoSubmittedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Ticket creation state
@@ -63,17 +67,43 @@ function FAQPage() {
   const [creatingTicket, setCreatingTicket] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
+
     loadKnowledgeBase();
-    // Add welcome message
-    setMessages([
-      {
-        id: 'welcome',
-        type: 'assistant',
-        content: `Hi ${user?.displayName || 'there'}! 👋 I'm your AI assistant. I'm here to help answer your questions based on our knowledge base. Feel free to ask me anything!`,
-        timestamp: new Date(),
-      }
-    ]);
-  }, [user]);
+    
+    // Check for pre-filled question from URL parameters
+    const questionParam = searchParams.get('question');
+    if (questionParam && !hasAutoSubmittedRef.current) {
+      const decodedQuestion = decodeURIComponent(questionParam);
+      setCurrentQuestion(decodedQuestion);
+      
+      // Add welcome message with context
+      setMessages([
+        {
+          id: 'welcome',
+          type: 'assistant',
+          content: `Hi ${user?.displayName || 'there'}! 👋 I see you were redirected here from creating a ticket. I've pre-filled your question below based on your ticket content. Let me help you find the answer!`,
+          timestamp: new Date(),
+        }
+      ]);
+      
+      // Auto-submit the question after a short delay
+      hasAutoSubmittedRef.current = true;
+      setTimeout(() => {
+        handleQuestionSubmit(decodedQuestion);
+      }, 1000);
+    } else if (!questionParam) {
+      // Add normal welcome message only if no question parameter
+      setMessages([
+        {
+          id: 'welcome',
+          type: 'assistant',
+          content: `Hi ${user?.displayName || 'there'}! 👋 I'm your AI assistant. I'm here to help answer your questions based on our knowledge base. Feel free to ask me anything!`,
+          timestamp: new Date(),
+        }
+      ]);
+    }
+  }, [user, searchParams]); // Removed hasAutoSubmitted from dependencies
 
   useEffect(() => {
     scrollToBottom();
@@ -95,25 +125,23 @@ function FAQPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentQuestion.trim() || isLoading) return;
+  const handleQuestionSubmit = async (question: string) => {
+    if (!question.trim() || isLoading) return;
 
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       type: 'user',
-      content: currentQuestion,
+      content: question,
       timestamp: new Date(),
     };
 
     setMessages(prev => [...prev, userMessage]);
-    setCurrentQuestion('');
     setIsLoading(true);
     setError('');
 
     try {
       const response: FAQResponse = await faqService.askQuestion({
-        question: currentQuestion,
+        question: question,
       });
 
       const assistantMessage: ChatMessage = {
@@ -134,6 +162,14 @@ function FAQPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentQuestion.trim() || isLoading) return;
+
+    await handleQuestionSubmit(currentQuestion);
+    setCurrentQuestion('');
   };
 
   const handleFeedback = async (messageId: string, feedback: 'helpful' | 'not_helpful' | 'partially_helpful') => {
