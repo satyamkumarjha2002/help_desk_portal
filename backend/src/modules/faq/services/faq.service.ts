@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, ILike } from 'typeorm';
 import { Document } from '../entities/document.entity';
 import { FaqInteraction, FeedbackType } from '../entities/faq-interaction.entity';
 import { User } from '../../../entities/user.entity';
+import { Department } from '../../../entities/department.entity';
+import { Category } from '../../../entities/category.entity';
+import { Priority } from '../../../entities/priority.entity';
 import { CreateDocumentDto } from '../dto/create-document.dto';
 import { AskQuestionDto } from '../dto/ask-question.dto';
 import { ProvideFeedbackDto } from '../dto/feedback.dto';
+import { CreateTicketFromFaqDto } from '../dto/create-ticket-from-faq.dto';
 import { OpenAIService } from './openai.service';
 
 export interface FAQResponse {
@@ -31,6 +35,12 @@ export class FaqService {
     private documentRepository: Repository<Document>,
     @InjectRepository(FaqInteraction)
     private interactionRepository: Repository<FaqInteraction>,
+    @InjectRepository(Department)
+    private departmentRepository: Repository<Department>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
+    @InjectRepository(Priority)
+    private priorityRepository: Repository<Priority>,
     private openAIService: OpenAIService,
   ) {}
 
@@ -323,5 +333,224 @@ I recommend:
       avgResponseTimeMs: parseInt(avgResponseTime?.avgTime || '0'),
       popularDocuments,
     };
+  }
+
+  // Ticket Creation from FAQ
+  /**
+   * Create a ticket from FAQ interaction
+   * This method generates ticket data using AI and returns the formatted data
+   * The actual ticket creation will be handled by the tickets service in the controller
+   */
+  async generateTicketFromFaqInteraction(
+    createTicketDto: CreateTicketFromFaqDto,
+    user: User,
+  ): Promise<any> {
+    // Get the FAQ interaction with all related data
+    const interaction = await this.interactionRepository.findOne({
+      where: { id: createTicketDto.interactionId },
+      relations: ['sourceDocuments', 'user'],
+    });
+
+    if (!interaction) {
+      throw new NotFoundException('FAQ interaction not found');
+    }
+
+    // Get all available departments, categories, and priorities for AI classification
+    const [departments, categories, priorities] = await Promise.all([
+      this.departmentRepository.find({ 
+        where: { isActive: true },
+        select: ['id', 'name', 'description']
+      }),
+      this.categoryRepository.find({ 
+        where: { isActive: true },
+        relations: ['department'],
+        select: ['id', 'name', 'description']
+      }),
+      this.priorityRepository.find({
+        select: ['id', 'name', 'level']
+      })
+    ]);
+
+    // Prepare data for AI ticket generation
+    const faqToTicketRequest = {
+      faqQuestion: interaction.question,
+      faqResponse: interaction.response,
+      confidence: interaction.confidence || 0,
+      sourceDocuments: interaction.sourceDocuments?.map(doc => ({
+        title: doc.title,
+        content: doc.content
+      })) || [],
+      feedback: interaction.feedback || undefined,
+      feedbackComment: interaction.feedbackComment || undefined,
+      additionalInfo: createTicketDto.additionalInfo,
+      departments: departments.map(d => ({
+        id: d.id,
+        name: d.name,
+        description: d.description
+      })),
+      categories: categories.map(c => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        departmentName: c.department?.name || 'Unknown'
+      })),
+      priorities: priorities.map(p => ({
+        id: p.id,
+        name: p.name,
+        level: p.level
+      }))
+    };
+
+    // Use AI to generate ticket creation data
+    const ticketData = await this.openAIService.generateTicketFromFaq(faqToTicketRequest);
+
+    // Add metadata to track the FAQ connection
+    const customFields = {
+      faqInteractionId: interaction.id,
+      faqQuestion: interaction.question,
+      faqConfidence: interaction.confidence,
+      createdFromFaq: true,
+      aiGeneratedTicket: true,
+      aiConfidence: ticketData.confidence,
+      aiReasoning: ticketData.reasoning,
+    };
+
+    // Return the formatted ticket creation data
+    const result = {
+      title: ticketData.title,
+      description: ticketData.description,
+      priorityId: ticketData.priorityId,
+      categoryId: ticketData.categoryId,
+      departmentId: ticketData.departmentId,
+      tags: ticketData.tags,
+      customFields,
+    };
+
+    this.logger.log(`Generated ticket data from FAQ interaction ${interaction.id} for user ${user.id}`);
+
+    return result;
+  }
+
+  /**
+   * Get FAQ interaction details for ticket creation preview
+   */
+  async getFaqInteractionForTicket(interactionId: string): Promise<FaqInteraction> {
+    const interaction = await this.interactionRepository.findOne({
+      where: { id: interactionId },
+      relations: ['sourceDocuments', 'user'],
+    });
+
+    if (!interaction) {
+      throw new NotFoundException('FAQ interaction not found');
+    }
+
+    return interaction;
+  }
+
+  /**
+   * Analyze a resolved ticket and potentially create an FAQ document
+   */
+  async processResolvedTicketForFaq(ticket: any, user: User): Promise<{ created: boolean; document?: any; analysis?: any }> {
+    try {
+      // Prepare ticket data for analysis
+      const ticketToFaqRequest = {
+        ticketTitle: ticket.title,
+        ticketDescription: ticket.description,
+        ticketComments: ticket.comments?.map(comment => ({
+          content: comment.content,
+          isInternal: comment.isInternal || false,
+          commentType: comment.commentType || 'COMMENT',
+          createdAt: comment.createdAt,
+          userRole: comment.user?.role,
+          userName: comment.user?.displayName || comment.user?.email,
+        })) || [],
+        ticketMetadata: {
+          category: ticket.category?.name,
+          department: ticket.department?.name,
+          priority: ticket.priority?.name,
+          tags: ticket.tags || [],
+          ticketNumber: ticket.ticketNumber,
+          createdAt: ticket.createdAt,
+          resolvedAt: new Date().toISOString(), // Current time as resolution time
+        },
+      };
+
+      // Analyze ticket with AI
+      const analysis = await this.openAIService.analyzeTicketForFaq(ticketToFaqRequest);
+
+      this.logger.log(`Analyzed ticket ${ticket.ticketNumber} for FAQ suitability: ${analysis.isSuitable} (score: ${analysis.suitabilityScore})`);
+
+      // Only create FAQ if suitable and score is high enough
+      if (analysis.isSuitable && analysis.suitabilityScore >= 0.7 && analysis.suggestedFaqDocument) {
+        try {
+          // Create the FAQ document
+          const documentDto = {
+            title: analysis.suggestedFaqDocument.title,
+            content: analysis.suggestedFaqDocument.content,
+            summary: analysis.suggestedFaqDocument.summary,
+            tags: [
+              ...analysis.suggestedFaqDocument.tags,
+              'auto-generated',
+              'from-ticket',
+              ticket.ticketNumber
+            ],
+            originalFileName: `ticket-${ticket.ticketNumber}.txt`,
+            mimeType: 'text/plain',
+            fileSize: analysis.suggestedFaqDocument.content.length,
+          };
+
+          const document = await this.createDocument(documentDto, user);
+
+          this.logger.log(`Created FAQ document ${document.id} from ticket ${ticket.ticketNumber}`);
+
+          return {
+            created: true,
+            document,
+            analysis,
+          };
+        } catch (error) {
+          this.logger.error(`Failed to create FAQ document from ticket ${ticket.ticketNumber}:`, error);
+          return {
+            created: false,
+            analysis,
+          };
+        }
+      }
+
+      return {
+        created: false,
+        analysis,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to process ticket ${ticket.ticketNumber} for FAQ:`, error);
+      return {
+        created: false,
+        analysis: {
+          isSuitable: false,
+          suitabilityScore: 0,
+          reasoning: `Processing failed: ${error.message}`,
+        },
+      };
+    }
+  }
+
+  /**
+   * Get tickets that have been converted to FAQ documents
+   */
+  async getTicketsConvertedToFaq(): Promise<any[]> {
+    const documents = await this.documentRepository.find({
+      where: { isActive: true },
+      select: ['id', 'title', 'tags', 'createdAt'],
+    });
+
+    // Filter documents that were created from tickets
+    return documents
+      .filter(doc => doc.tags.some(tag => tag.startsWith('HD-'))) // Ticket numbers start with HD-
+      .map(doc => ({
+        documentId: doc.id,
+        documentTitle: doc.title,
+        ticketNumber: doc.tags.find(tag => tag.startsWith('HD-')),
+        createdAt: doc.createdAt,
+      }));
   }
 } 

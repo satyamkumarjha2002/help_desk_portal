@@ -8,6 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import { AppHeader } from '@/components/app-header';
 import { 
   MessageSquare, 
@@ -23,7 +26,9 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Loader2
+  Loader2,
+  TicketIcon,
+  Plus
 } from 'lucide-react';
 import { faqService, FAQResponse, Document } from '@/services/faqService';
 import { withProtectedPage } from '@/lib/withAuth';
@@ -50,6 +55,12 @@ function FAQPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Ticket creation state
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [selectedMessageId, setSelectedMessageId] = useState<string>('');
+  const [ticketAdditionalInfo, setTicketAdditionalInfo] = useState('');
+  const [creatingTicket, setCreatingTicket] = useState(false);
 
   useEffect(() => {
     loadKnowledgeBase();
@@ -140,6 +151,43 @@ function FAQPage() {
       ));
     } catch (error) {
       console.error('Failed to provide feedback:', error);
+    }
+  };
+
+  const handleCreateTicketClick = (messageId: string) => {
+    setSelectedMessageId(messageId);
+    setShowTicketModal(true);
+    setTicketAdditionalInfo('');
+  };
+
+  const handleCreateTicket = async () => {
+    const message = messages.find(m => m.id === selectedMessageId);
+    if (!message?.interactionId) return;
+
+    setCreatingTicket(true);
+    try {
+      const ticket = await faqService.createTicketFromFaq({
+        interactionId: message.interactionId,
+        additionalInfo: ticketAdditionalInfo || undefined,
+      });
+
+      // Close modal and show success
+      setShowTicketModal(false);
+      setSelectedMessageId('');
+      setTicketAdditionalInfo('');
+
+      // Show success message and redirect option
+      alert(`Ticket created successfully! Ticket ID: ${ticket.ticketNumber || ticket.id}`);
+      
+      // Optionally redirect to the ticket
+      if (ticket.id) {
+        window.open(`/tickets/${ticket.id}`, '_blank');
+      }
+    } catch (error) {
+      console.error('Failed to create ticket:', error);
+      alert('Failed to create ticket. Please try again.');
+    } finally {
+      setCreatingTicket(false);
     }
   };
 
@@ -235,6 +283,17 @@ function FAQPage() {
                 >
                   <ThumbsDown className="w-3 h-3" />
                 </Button>
+                <div className="ml-auto">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCreateTicketClick(message.id)}
+                    className="h-6 px-2 text-xs"
+                  >
+                    <TicketIcon className="w-3 h-3 mr-1" />
+                    Create Ticket
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -385,6 +444,62 @@ function FAQPage() {
           </div>
         </div>
       </div>
+
+      {/* Create Ticket Modal */}
+      <Dialog open={showTicketModal} onOpenChange={setShowTicketModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TicketIcon className="h-5 w-5" />
+              Create Support Ticket
+            </DialogTitle>
+            <DialogDescription>
+              Create a support ticket from this FAQ conversation. Our AI will automatically generate the ticket details based on your conversation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="additional-info">
+                Additional Information (Optional)
+              </Label>
+              <Textarea
+                id="additional-info"
+                placeholder="Add any additional details or context that might help our support team..."
+                value={ticketAdditionalInfo}
+                onChange={(e) => setTicketAdditionalInfo(e.target.value)}
+                className="min-h-[100px]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowTicketModal(false)}
+              disabled={creatingTicket}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleCreateTicket}
+              disabled={creatingTicket}
+            >
+              {creatingTicket ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Ticket
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

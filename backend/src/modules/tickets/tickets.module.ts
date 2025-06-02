@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TicketsController } from './tickets.controller';
 import { TicketsService } from './tickets.service';
@@ -10,6 +10,7 @@ import { Category } from '../../entities/category.entity';
 import { Department } from '../../entities/department.entity';
 import { Attachment } from '../../entities/attachment.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { FaqModule } from '../faq/faq.module';
 import { OpenAIService } from '../faq/services/openai.service';
 
 /**
@@ -30,6 +31,7 @@ import { OpenAIService } from '../faq/services/openai.service';
       Attachment,
     ]),
     NotificationsModule,
+    forwardRef(() => FaqModule),
   ],
   controllers: [TicketsController],
   providers: [TicketsService, OpenAIService],

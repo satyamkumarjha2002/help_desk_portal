@@ -14,6 +14,8 @@ import {
   DefaultValuePipe,
   Request,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { FirebaseAuthGuard } from '../../common/guards/firebase-auth.guard';
@@ -24,8 +26,10 @@ import { FileProcessorService } from './services/file-processor.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { AskQuestionDto } from './dto/ask-question.dto';
 import { ProvideFeedbackDto } from './dto/feedback.dto';
+import { CreateTicketFromFaqDto } from './dto/create-ticket-from-faq.dto';
 import { Document } from './entities/document.entity';
 import { FaqInteraction } from './entities/faq-interaction.entity';
+import { TicketsService } from '../tickets/tickets.service';
 
 @Controller('faq')
 @UseGuards(FirebaseAuthGuard)
@@ -33,6 +37,8 @@ export class FaqController {
   constructor(
     private readonly faqService: FaqService,
     private readonly fileProcessorService: FileProcessorService,
+    @Inject(forwardRef(() => TicketsService))
+    private readonly ticketsService: TicketsService,
   ) {}
 
   // Public FAQ endpoints - available to all authenticated users
@@ -160,5 +166,33 @@ export class FaqController {
     }
     
     return await this.faqService.getAnalytics(days);
+  }
+
+  @Post('tickets')
+  async createTicketFromFaq(
+    @Body() createTicketDto: CreateTicketFromFaqDto,
+    @Request() req: any,
+  ): Promise<any> {
+    const user: User = req.user;
+    
+    // Generate ticket data from FAQ interaction using AI
+    const ticketData = await this.faqService.generateTicketFromFaqInteraction(createTicketDto, user);
+    
+    // Create the ticket using the existing tickets service
+    const ticket = await this.ticketsService.createTicket(ticketData, user);
+    
+    return ticket;
+  }
+
+  @Get('ticket-conversions')
+  async getTicketConversions(@Request() req: any): Promise<any> {
+    const user: User = req.user;
+    
+    // Only admins and super admins can view conversions
+    if (![UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(user.role)) {
+      throw new ForbiddenException('You do not have permission to view ticket conversions');
+    }
+    
+    return await this.faqService.getTicketsConvertedToFaq();
   }
 } 

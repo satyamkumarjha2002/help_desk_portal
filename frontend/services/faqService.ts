@@ -172,10 +172,8 @@ export const faqService = {
   /**
    * Get FAQ analytics (Admin only)
    */
-  async getAnalytics(days = 30): Promise<FAQAnalytics> {
-    const response = await api.get('/faq/analytics', {
-      params: { days },
-    });
+  async getAnalytics(days: number = 30): Promise<FAQAnalytics> {
+    const response = await api.get(`/faq/analytics?days=${days}`);
     return response.data;
   },
 
@@ -187,5 +185,16 @@ export const faqService = {
       params: { search: query, limit: 20 },
     });
     return response.data.documents;
+  },
+
+  /**
+   * Create a ticket from FAQ interaction
+   */
+  async createTicketFromFaq(data: {
+    interactionId: string;
+    additionalInfo?: string;
+  }): Promise<any> {
+    const response = await api.post('/faq/tickets', data);
+    return response.data;
   },
 }; 
