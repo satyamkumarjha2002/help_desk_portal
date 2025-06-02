@@ -8,6 +8,7 @@ import { Priority } from '../../entities/priority.entity';
 import { Category } from '../../entities/category.entity';
 import { Department } from '../../entities/department.entity';
 import { NotificationsService } from '../notifications/notifications.service';
+import { OpenAIService } from '../faq/services/openai.service';
 import { CreateTicketDto, UpdateTicketDto, AddCommentDto, AssignTicketDto } from './dto';
 
 /**
@@ -32,6 +33,7 @@ export class TicketsService {
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
     private readonly notificationsService: NotificationsService,
+    private readonly openAIService: OpenAIService,
   ) {}
 
   /**
@@ -52,8 +54,94 @@ export class TicketsService {
    * @returns Created ticket
    */
   async createTicket(createTicketDto: CreateTicketDto, currentUser: User): Promise<Ticket> {
+    // Check if we need AI classification for missing fields
+    const needsClassification = !createTicketDto.departmentId || !createTicketDto.categoryId || !createTicketDto.priorityId;
+    
+    let departmentId = createTicketDto.departmentId;
+    let categoryId = createTicketDto.categoryId;
+    let priorityId = createTicketDto.priorityId;
+
+    if (needsClassification && this.openAIService.isConfigured()) {
+      try {
+        // Get all active departments, categories, and priorities for AI classification
+        const [departments, categories, priorities] = await Promise.all([
+          this.departmentRepository.find({ 
+            where: { isActive: true },
+            select: ['id', 'name', 'description']
+          }),
+          this.categoryRepository.find({ 
+            where: { isActive: true },
+            relations: ['department'],
+            select: ['id', 'name', 'description', 'departmentId']
+          }),
+          this.priorityRepository.find({
+            select: ['id', 'name', 'level']
+          })
+        ]);
+
+        // Prepare data for AI classification
+        const classificationRequest = {
+          title: createTicketDto.title,
+          description: createTicketDto.description,
+          departments: departments.map(d => ({
+            id: d.id,
+            name: d.name,
+            description: d.description
+          })),
+          categories: categories.map(c => ({
+            id: c.id,
+            name: c.name,
+            description: c.description,
+            departmentName: c.department?.name || 'Unknown'
+          })),
+          priorities: priorities.map(p => ({
+            id: p.id,
+            name: p.name,
+            level: p.level
+          }))
+        };
+
+        const classification = await this.openAIService.classifyTicketFields(classificationRequest);
+
+        // Use AI classification results only for missing fields
+        if (!departmentId && classification.departmentId) {
+          departmentId = classification.departmentId;
+        }
+        if (!categoryId && classification.categoryId) {
+          categoryId = classification.categoryId;
+        }
+        if (!priorityId && classification.priorityId) {
+          priorityId = classification.priorityId;
+        }
+
+        // Log the AI classification for debugging
+        console.log('AI Classification Result:', {
+          originalFields: {
+            departmentId: createTicketDto.departmentId,
+            categoryId: createTicketDto.categoryId,
+            priorityId: createTicketDto.priorityId
+          },
+          aiSuggestions: {
+            departmentId: classification.departmentId,
+            categoryId: classification.categoryId,
+            priorityId: classification.priorityId
+          },
+          finalFields: { departmentId, categoryId, priorityId },
+          confidence: classification.confidence,
+          reasoning: classification.reasoning
+        });
+
+      } catch (error) {
+        console.error('AI classification failed, proceeding without it:', error);
+        // Continue with original values if AI classification fails
+      }
+    }
+
     const ticket = this.ticketRepository.create({
       ...createTicketDto,
+      departmentId,
+      categoryId,
+      priorityId,
       requesterId: currentUser.id,
       createdById: currentUser.id,
       status: TicketStatus.OPEN,
@@ -62,7 +150,12 @@ export class TicketsService {
     const savedTicket = await this.ticketRepository.save(ticket);
     
     // Load relations for response
-    return this.getTicketById(savedTicket.id, currentUser);
+    const fullTicket = await this.getTicketById(savedTicket.id, currentUser);
+
+    // Send notifications
+    await this.sendTicketCreatedNotifications(fullTicket, currentUser);
+
+    return fullTicket;
   }
 
   /**
