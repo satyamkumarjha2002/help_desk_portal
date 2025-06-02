@@ -29,7 +29,8 @@ import {
 } from 'lucide-react';
 import { withAuthOnlyPage } from '@/lib/withAuth';
 import { departmentService } from '@/services/departmentService';
-import { Department } from '@/types';
+import { Department, UserRole } from '@/types';
+import { getSelfRegistrationRoles, getRoleDisplayName, getRoleDescription, getRoleColor } from '@/lib/roleUtils';
 
 function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -38,6 +39,7 @@ function RegisterPage() {
     password: '',
     confirmPassword: '',
     departmentId: 'none', // Default to "none" instead of empty string
+    role: UserRole.END_USER, // Default role
   });
   const [profilePicture, setProfilePicture] = useState<File | null>(null);
   const [profilePicturePreview, setProfilePicturePreview] = useState<string>('');
@@ -79,7 +81,16 @@ function RegisterPage() {
   const handleDepartmentChange = (value: string) => {
     setFormData(prev => ({
       ...prev,
-      departmentId: value
+      departmentId: value,
+      // Reset role to END_USER when department changes
+      role: value === 'none' ? UserRole.END_USER : prev.role
+    }));
+  };
+
+  const handleRoleChange = (value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      role: value as UserRole
     }));
   };
 
@@ -153,7 +164,8 @@ function RegisterPage() {
         formData.password, 
         formData.displayName, 
         profilePicture || undefined,
-        formData.departmentId === 'none' ? undefined : formData.departmentId // Convert "none" to undefined
+        formData.departmentId === 'none' ? undefined : formData.departmentId,
+        formData.role
       );
       // Don't manually redirect - let AuthWrapper handle it
     } catch (error: unknown) {
@@ -353,11 +365,44 @@ function RegisterPage() {
                   </Select>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {formData.departmentId && formData.departmentId !== 'none'
-                      ? "You'll have admin access to this department" 
+                      ? "Select your role in the department below" 
                       : "You can join a department later or use the portal as a general user"
                     }
                   </p>
                 </div>
+
+                {/* Role Selection - Only show when department is selected */}
+                {formData.departmentId && formData.departmentId !== 'none' && (
+                  <div className="space-y-1">
+                    <Label htmlFor="role" className="text-xs font-medium text-gray-700 dark:text-gray-300 flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      Your Role in Department
+                    </Label>
+                    <Select
+                      value={formData.role}
+                      onValueChange={handleRoleChange}
+                      disabled={loading}
+                    >
+                      <SelectTrigger className="h-9 text-sm border-gray-200 focus:border-purple-500 focus:ring-purple-500 dark:border-gray-600 dark:bg-gray-700/50">
+                        <SelectValue placeholder="Select your role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getSelfRegistrationRoles().map((role) => (
+                          <SelectItem key={role} value={role}>
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-full bg-${getRoleColor(role)}-500`}></div>
+                              <span>{getRoleDisplayName(role)}</span>
+                              <span className="text-xs text-gray-500">- {getRoleDescription(role)}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Choose the role that best matches your responsibilities in the department.
+                    </p>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">

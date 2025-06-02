@@ -91,9 +91,12 @@ function ProfilePage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [preferences, setPreferences] = useState({
     emailNotifications: true,
-    pushNotifications: true,
-    smsNotifications: false
+    pushNotifications: false,
+    smsNotifications: false,
   });
+
+  // Add state for delete account confirmation
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -717,30 +720,21 @@ function ProfilePage() {
                       Once you delete your account, there is no going back. Please be certain.
                     </p>
                     
-                    <ConfirmationDialog
-                      title="Delete Account"
-                      description="Are you absolutely sure? This action cannot be undone. This will permanently delete your account and remove your data from our servers."
-                      confirmText="Delete Account"
-                      cancelText="Cancel"
-                      variant="destructive"
-                      onConfirm={handleDeleteAccount}
+                    <Button 
+                      variant="destructive" 
+                      className="bg-red-600 hover:bg-red-700"
                       disabled={loading}
+                      onClick={() => setShowDeleteConfirmation(true)}
                     >
-                      <Button 
-                        variant="destructive" 
-                        className="bg-red-600 hover:bg-red-700"
-                        disabled={loading}
-                      >
-                        {loading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Deleting...
-                          </>
-                        ) : (
-                          'Delete Account'
-                        )}
-                      </Button>
-                    </ConfirmationDialog>
+                      {loading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        'Delete Account'
+                      )}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -748,6 +742,20 @@ function ProfilePage() {
           </div>
         </div>
       </main>
+      
+      {/* Delete Account Confirmation Dialog */}
+      <ConfirmationDialog
+        isOpen={showDeleteConfirmation}
+        onClose={() => setShowDeleteConfirmation(false)}
+        onConfirm={handleDeleteAccount}
+        title="Delete Account"
+        description="Are you absolutely sure? This action cannot be undone. This will permanently delete your account and remove your data from our servers."
+        confirmText="Delete Account"
+        cancelText="Cancel"
+        confirmVariant="destructive"
+        isLoading={loading}
+      />
+      
       <Toaster />
     </div>
   );

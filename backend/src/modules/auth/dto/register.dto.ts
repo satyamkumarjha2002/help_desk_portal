@@ -1,5 +1,17 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsEnum, IsUUID, Matches } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsEnum, IsUUID, Matches, ValidateIf, IsIn } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { UserRole } from '../../../entities/user.entity';
+
+/**
+ * Allowed roles for self-registration
+ * Excludes ADMIN and SUPER_ADMIN roles which should only be assigned by administrators
+ */
+const SELF_REGISTRATION_ROLES = [
+  UserRole.END_USER,
+  UserRole.AGENT,
+  UserRole.TEAM_LEAD,
+  UserRole.MANAGER
+];
 
 /**
  * Register User DTO
@@ -23,10 +35,20 @@ export class RegisterDto {
   displayName: string;
 
   @IsOptional()
-  @IsEnum(UserRole, { message: 'Invalid user role' })
+  @IsIn(SELF_REGISTRATION_ROLES, { 
+    message: 'Invalid role. Available roles: End User, Agent, Team Lead, Manager' 
+  })
   role?: UserRole;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    // Transform empty strings to undefined for proper optional validation
+    if (typeof value === 'string' && value.trim() === '') {
+      return undefined;
+    }
+    return value;
+  })
+  @ValidateIf((o) => o.departmentId !== undefined)
   @IsUUID(4, { message: 'Department ID must be a valid UUID' })
   departmentId?: string;
 
