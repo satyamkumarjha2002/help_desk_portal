@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions, Like, In } from 'typeorm';
+import { Repository, FindManyOptions, Like, In, IsNull, Not, MoreThan } from 'typeorm';
 import { Ticket, TicketStatus } from '../../entities/ticket.entity';
 import { TicketComment, CommentType } from '../../entities/ticket-comment.entity';
 import { User, UserRole } from '../../entities/user.entity';
@@ -9,6 +9,7 @@ import { Category } from '../../entities/category.entity';
 import { Department } from '../../entities/department.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OpenAIService } from '../faq/services/openai.service';
+import { FaqService } from '../faq/services/faq.service';
 import { CreateTicketDto, UpdateTicketDto, AddCommentDto, AssignTicketDto } from './dto';
 
 /**
@@ -34,6 +35,8 @@ export class TicketsService {
     private readonly departmentRepository: Repository<Department>,
     private readonly notificationsService: NotificationsService,
     private readonly openAIService: OpenAIService,
+    @Inject(forwardRef(() => FaqService))
+    private readonly faqService: FaqService,
   ) {}
 
   /**
@@ -323,6 +326,20 @@ export class TicketsService {
     // Add audit comment for significant changes
     if (updateTicketDto.status || updateTicketDto.assigneeId) {
       await this.addSystemComment(ticket.id, currentUser, updateTicketDto);
+    }
+
+    // Process ticket for FAQ conversion if status changed to RESOLVED
+    if (updateTicketDto.status === TicketStatus.RESOLVED && oldStatus !== TicketStatus.RESOLVED) {
+      try {
+        // Get the full ticket with all relations for FAQ analysis
+        const fullTicket = await this.getTicketById(updatedTicket.id, currentUser);
+        
+        // Process ticket for FAQ conversion in the background
+        this.processTicketForFaqConversion(fullTicket, currentUser);
+      } catch (error) {
+        // Don't fail the ticket update if FAQ processing fails
+        console.error('Failed to process ticket for FAQ conversion:', error);
+      }
     }
 
     return this.getTicketById(updatedTicket.id, currentUser);
@@ -745,6 +762,27 @@ export class TicketsService {
       await this.notificationsService.notifyTicketCommentedEnhanced(ticket, comment, commenter);
     } catch (error) {
       console.error('Failed to send comment notifications:', error);
+    }
+  }
+
+  /**
+   * Process ticket for FAQ conversion
+   * 
+   * @param ticket - Ticket entity
+   * @param currentUser - Current user
+   */
+  private async processTicketForFaqConversion(ticket: Ticket, currentUser: User): Promise<void> {
+    try {
+      // Process ticket for FAQ conversion using the FAQ service
+      const result = await this.faqService.processResolvedTicketForFaq(ticket, currentUser);
+      
+      if (result.created) {
+        console.log(`Successfully created FAQ document from ticket ${ticket.ticketNumber}`);
+      } else {
+        console.log(`Ticket ${ticket.ticketNumber} was not suitable for FAQ conversion: ${result.analysis?.reasoning}`);
+      }
+    } catch (error) {
+      console.error(`Failed to process ticket ${ticket.ticketNumber} for FAQ conversion:`, error);
     }
   }
 } 
